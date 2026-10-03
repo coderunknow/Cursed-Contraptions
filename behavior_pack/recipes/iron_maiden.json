@@ -1,0 +1,24 @@
+{
+  "format_version": "1.21.0",
+  "minecraft:recipe_shaped": {
+    "description": {
+      "identifier": "cc:recipe_iron_maiden"
+    },
+    "tags": ["crafting_table"],
+    "pattern": [
+      "IBI",
+      "ISI",
+      "IRI"
+    ],
+    "key": {
+      "I": { "item": "minecraft:iron_ingot" },
+      "B": { "item": "minecraft:iron_bars" },
+      "S": { "item": "minecraft:iron_sword" },
+      "R": { "item": "minecraft:redstone" }
+    },
+    "result": {
+      "item": "cc:item_iron_maiden",
+      "count": 1
+    }
+  }
+}

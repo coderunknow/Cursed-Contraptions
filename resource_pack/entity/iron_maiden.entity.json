@@ -1,0 +1,33 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "cc:iron_maiden",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "default": "textures/entity/iron_maiden"
+      },
+      "geometry": {
+        "default": "geometry.cc_iron_maiden"
+      },
+      "animations": {
+        "idle": "animation.cc_iron_maiden.idle",
+        "open": "animation.cc_iron_maiden.open",
+        "close": "animation.cc_iron_maiden.close",
+        "torture": "animation.cc_iron_maiden.torture",
+        "broken": "animation.cc_iron_maiden.broken",
+        "controller": "controller.animation.cc_iron_maiden.state"
+      },
+      "scripts": {
+        "animate": ["controller"]
+      },
+      "render_controllers": ["controller.render.default"],
+      "spawn_egg": {
+        "base_color": "#3a3a3a",
+        "overlay_color": "#8b0000"
+      }
+    }
+  }
+}

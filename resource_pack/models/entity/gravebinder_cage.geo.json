@@ -1,0 +1,79 @@
+{
+  "format_version": "1.16.0",
+  "minecraft:geometry": [
+    {
+      "description": {
+        "identifier": "geometry.cc_gravebinder_cage",
+        "texture_width": 32,
+        "texture_height": 32,
+        "visible_bounds_width": 2,
+        "visible_bounds_height": 3,
+        "visible_bounds_offset": [0, 1.5, 0]
+      },
+      "bones": [
+        {
+          "name": "base",
+          "pivot": [0, 0, 0],
+          "cubes": [
+            {
+              "origin": [-7, 0, -7],
+              "size": [14, 2, 14],
+              "uv": [0, 0]
+            }
+          ]
+        },
+        {
+          "name": "bars",
+          "parent": "base",
+          "pivot": [0, 2, 0],
+          "cubes": [
+            {
+              "origin": [-7, 2, -7],
+              "size": [1, 22, 1],
+              "uv": [0, 16]
+            },
+            {
+              "origin": [6, 2, -7],
+              "size": [1, 22, 1],
+              "uv": [0, 16]
+            },
+            {
+              "origin": [-7, 2, 6],
+              "size": [1, 22, 1],
+              "uv": [0, 16]
+            },
+            {
+              "origin": [6, 2, 6],
+              "size": [1, 22, 1],
+              "uv": [0, 16]
+            }
+          ]
+        },
+        {
+          "name": "top",
+          "parent": "bars",
+          "pivot": [0, 24, 0],
+          "cubes": [
+            {
+              "origin": [-7, 24, -7],
+              "size": [14, 2, 14],
+              "uv": [0, 0]
+            }
+          ]
+        },
+        {
+          "name": "door",
+          "parent": "bars",
+          "pivot": [-7, 2, -7],
+          "cubes": [
+            {
+              "origin": [-7, 2, -7],
+              "size": [14, 22, 1],
+              "uv": [4, 16]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

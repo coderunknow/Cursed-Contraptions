@@ -1,0 +1,106 @@
+{
+  "format_version": "1.21.0",
+  "minecraft:entity": {
+    "description": {
+      "identifier": "cc:gravebinder_cage",
+      "is_spawnable": false,
+      "is_summonable": true,
+      "is_experimental": false,
+      "properties": {
+        "cc:state": {
+          "type": "enum",
+          "values": [
+            "idle",
+            "detecting",
+            "capturing",
+            "closed",
+            "torturing",
+            "opening",
+            "released",
+            "broken"
+          ],
+          "default": "idle",
+          "client_sync": true
+        },
+        "cc:durability": {
+          "type": "int",
+          "range": [
+            0,
+            500
+          ],
+          "default": 180,
+          "client_sync": true
+        },
+        "cc:armor_count": {
+          "type": "int",
+          "range": [
+            0,
+            4
+          ],
+          "default": 0,
+          "client_sync": true
+        }
+      }
+    },
+    "components": {
+      "minecraft:type_family": {
+        "family": [
+          "cc_device",
+          "gravebinder_cage",
+          "inanimate"
+        ]
+      },
+      "minecraft:collision_box": {
+        "width": 1.4,
+        "height": 2.4
+      },
+      "minecraft:physics": {
+        "has_gravity": true,
+        "has_collision": true
+      },
+      "minecraft:pushable": {
+        "is_pushable": false,
+        "is_pushable_by_piston": false
+      },
+      "minecraft:knockback_resistance": {
+        "value": 1.0
+      },
+      "minecraft:health": {
+        "value": 180,
+        "max": 400
+      },
+      "minecraft:damage_sensor": {
+        "triggers": [
+          {
+            "cause": "all",
+            "deals_damage": true
+          }
+        ]
+      },
+      "minecraft:interact": {
+        "interactions": [
+          {
+            "on_interact": {
+              "event": "cc:on_interact"
+            },
+            "use_item": false,
+            "interact_text": "Interact"
+          }
+        ]
+      },
+      "minecraft:persistent": {},
+      "minecraft:breathable": {
+        "total_supply": 999,
+        "suffocate_time": -1,
+        "breathes_air": true,
+        "breathes_water": true
+      },
+      "minecraft:loot": {
+        "table": "loot_tables/entities/gravebinder_cage.json"
+      }
+    },
+    "events": {
+      "cc:on_interact": {}
+    }
+  }
+}

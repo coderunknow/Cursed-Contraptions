@@ -1,0 +1,20 @@
+item.cc:item_iron_maiden.name=Iron Maiden
+item.cc:item_cursed_stocks.name=Cursed Stocks
+item.cc:item_gravebinder_cage.name=Gravebinder Cage
+item.cc:item_regret_rack.name=The Regret Rack
+item.cc:item_black_reliquary.name=The Black Reliquary
+
+tile.cc:iron_maiden_block.name=Iron Maiden
+tile.cc:cursed_stocks_block.name=Cursed Stocks
+tile.cc:gravebinder_cage_block.name=Gravebinder Cage
+tile.cc:regret_rack_block.name=The Regret Rack
+tile.cc:black_reliquary_block.name=The Black Reliquary
+
+entity.cc:iron_maiden.name=Iron Maiden
+entity.cc:cursed_stocks.name=Cursed Stocks
+entity.cc:gravebinder_cage.name=Gravebinder Cage
+entity.cc:regret_rack.name=The Regret Rack
+entity.cc:black_reliquary.name=The Black Reliquary
+
+pack.name=Cursed Contraptions
+pack.description=Medieval torture contraptions for chaotic multiplayer fun

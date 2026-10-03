@@ -1,0 +1,26 @@
+{
+  "format_version": "1.21.0",
+  "minecraft:item": {
+    "description": {
+      "identifier": "cc:item_gravebinder_cage",
+      "menu_category": {
+        "category": "items",
+        "group": "itemGroup.name.miscellaneous"
+      }
+    },
+    "components": {
+      "minecraft:display_name": {
+        "value": "item.cc:item_gravebinder_cage.name"
+      },
+      "minecraft:icon": {
+        "textures": {
+          "default": "cc_item_gravebinder_cage"
+        }
+      },
+      "minecraft:max_stack_size": 1,
+      "minecraft:block_placer": {
+        "block": "cc:gravebinder_cage_block"
+      }
+    }
+  }
+}

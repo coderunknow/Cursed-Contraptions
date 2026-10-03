@@ -1,0 +1,22 @@
+{
+  "cc:iron_maiden_block": {
+    "textures": "cc_iron_maiden_side",
+    "sound": "metal"
+  },
+  "cc:cursed_stocks_block": {
+    "textures": "cc_cursed_stocks_side",
+    "sound": "wood"
+  },
+  "cc:gravebinder_cage_block": {
+    "textures": "cc_gravebinder_cage_side",
+    "sound": "metal"
+  },
+  "cc:regret_rack_block": {
+    "textures": "cc_regret_rack_side",
+    "sound": "wood"
+  },
+  "cc:black_reliquary_block": {
+    "textures": "cc_black_reliquary_side",
+    "sound": "stone"
+  }
+}

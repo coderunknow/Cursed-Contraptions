@@ -1,0 +1,58 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.cc_cursed_stocks.idle": {
+      "loop": true,
+      "animation_length": 3,
+      "bones": {
+        "board_top": {
+          "rotation": {
+            "0.0": [-15, 0, 0],
+            "1.5": [-10, 0, 0],
+            "3.0": [-15, 0, 0]
+          }
+        }
+      }
+    },
+    "animation.cc_cursed_stocks.lock": {
+      "animation_length": 0.8,
+      "bones": {
+        "board_top": {
+          "rotation": {
+            "0.0": [-15, 0, 0],
+            "0.4": [0, 0, 0],
+            "0.8": [0, 0, 0]
+          }
+        }
+      }
+    },
+    "animation.cc_cursed_stocks.shake": {
+      "loop": true,
+      "animation_length": 1,
+      "bones": {
+        "base": {
+          "position": {
+            "0.0": [0, 0, 0],
+            "0.1": [1, 0, 0],
+            "0.2": [-1, 0, 0],
+            "0.3": [1, 0, 0],
+            "0.4": [-1, 0, 0],
+            "0.5": [0, 0, 0],
+            "1.0": [0, 0, 0]
+          }
+        }
+      }
+    },
+    "animation.cc_cursed_stocks.broken": {
+      "loop": true,
+      "bones": {
+        "board_top": {
+          "rotation": [10, 5, 0]
+        },
+        "post_left": {
+          "rotation": [0, 0, -10]
+        }
+      }
+    }
+  }
+}

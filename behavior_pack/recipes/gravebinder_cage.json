@@ -1,0 +1,23 @@
+{
+  "format_version": "1.21.0",
+  "minecraft:recipe_shaped": {
+    "description": {
+      "identifier": "cc:recipe_gravebinder_cage"
+    },
+    "tags": ["crafting_table"],
+    "pattern": [
+      "BBB",
+      "BSB",
+      "BIB"
+    ],
+    "key": {
+      "B": { "item": "minecraft:iron_bars" },
+      "S": { "item": "minecraft:soul_sand" },
+      "I": { "item": "minecraft:iron_ingot" }
+    },
+    "result": {
+      "item": "cc:item_gravebinder_cage",
+      "count": 1
+    }
+  }
+}

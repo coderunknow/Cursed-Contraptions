@@ -1,0 +1,33 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "cc:black_reliquary",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "default": "textures/entity/black_reliquary"
+      },
+      "geometry": {
+        "default": "geometry.cc_black_reliquary"
+      },
+      "animations": {
+        "idle": "animation.cc_black_reliquary.idle",
+        "open": "animation.cc_black_reliquary.open",
+        "close": "animation.cc_black_reliquary.close",
+        "torture": "animation.cc_black_reliquary.torture",
+        "broken": "animation.cc_black_reliquary.broken",
+        "controller": "controller.animation.cc_black_reliquary.state"
+      },
+      "scripts": {
+        "animate": ["controller"]
+      },
+      "render_controllers": ["controller.render.default"],
+      "spawn_egg": {
+        "base_color": "#1a1a2e",
+        "overlay_color": "#e94560"
+      }
+    }
+  }
+}

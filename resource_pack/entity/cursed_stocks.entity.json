@@ -1,0 +1,32 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "cc:cursed_stocks",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "default": "textures/entity/cursed_stocks"
+      },
+      "geometry": {
+        "default": "geometry.cc_cursed_stocks"
+      },
+      "animations": {
+        "idle": "animation.cc_cursed_stocks.idle",
+        "lock": "animation.cc_cursed_stocks.lock",
+        "shake": "animation.cc_cursed_stocks.shake",
+        "broken": "animation.cc_cursed_stocks.broken",
+        "controller": "controller.animation.cc_cursed_stocks.state"
+      },
+      "scripts": {
+        "animate": ["controller"]
+      },
+      "render_controllers": ["controller.render.default"],
+      "spawn_egg": {
+        "base_color": "#8b4513",
+        "overlay_color": "#2f1a0a"
+      }
+    }
+  }
+}
