@@ -15,6 +15,11 @@ export const DeviceState = Object.freeze({
   BROKEN: "broken",
 });
 
+/**
+ * Any valid device state string.
+ * @typedef {(typeof DeviceState)[keyof typeof DeviceState]} DeviceStateValue
+ */
+
 const VALID_TRANSITIONS = Object.freeze({
   [DeviceState.IDLE]: [DeviceState.DETECTING, DeviceState.BROKEN],
   [DeviceState.DETECTING]: [DeviceState.CAPTURING, DeviceState.IDLE, DeviceState.BROKEN],
@@ -27,6 +32,7 @@ const VALID_TRANSITIONS = Object.freeze({
 });
 
 export class StateMachine {
+  /** @param {DeviceStateValue} [initialState] */
   constructor(initialState = DeviceState.IDLE) {
     this._state = Object.values(DeviceState).includes(initialState)
       ? initialState
@@ -38,6 +44,7 @@ export class StateMachine {
     return this._state;
   }
 
+  /** @param {DeviceStateValue} newState */
   transition(newState) {
     if (this._state === newState) return true;
     const allowed = VALID_TRANSITIONS[this._state] || [];
@@ -49,7 +56,10 @@ export class StateMachine {
     return true;
   }
 
-  /** Used only to recover a valid state from persisted world data. */
+  /**
+   * Used only to recover a valid state from persisted world data.
+   * @param {DeviceStateValue} newState
+   */
   forceState(newState) {
     if (!Object.values(DeviceState).includes(newState)) return false;
     const oldState = this._state;
@@ -58,6 +68,10 @@ export class StateMachine {
     return true;
   }
 
+  /**
+   * @param {DeviceStateValue} fromState
+   * @param {(from: DeviceStateValue, to: DeviceStateValue) => void} callback
+   */
   onTransition(fromState, callback) {
     if (!Object.values(DeviceState).includes(fromState) || typeof callback !== "function") {
       return false;
@@ -79,6 +93,7 @@ export class StateMachine {
     }
   }
 
+  /** @param {...DeviceStateValue} states */
   is(...states) {
     return states.includes(this._state);
   }
@@ -87,6 +102,7 @@ export class StateMachine {
     return this._state;
   }
 
+  /** @param {*} value */
   static deserialize(value) {
     return new StateMachine(
       Object.values(DeviceState).includes(value) ? value : DeviceState.IDLE

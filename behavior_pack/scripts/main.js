@@ -20,6 +20,7 @@ const BLOCK_TO_ENTITY = Object.freeze({
   "cc:regret_rack_block": "cc:regret_rack",
   "cc:black_reliquary_block": "cc:black_reliquary",
 });
+/** @type {Set<string>} */
 const ENTITY_TYPES = new Set(Object.values(BLOCK_TO_ENTITY));
 const DEVICE_ITEMS = Object.freeze([
   "cc:item_iron_maiden",
@@ -32,14 +33,31 @@ const TRAPPED_TAG = "cc:trapped";
 const CAPTURE_RESERVED_TAG = "cc:capture_reserved";
 const MOVEMENT_SAVED_PROPERTY = "cc:movement_was_enabled";
 
-system.run(() => {
-  Debug.info("Main", "Cursed Contraptions initializing...");
-  deviceManager.start();
-  deviceManager.discoverAll();
-  Debug.info("Main", `Loaded ${deviceManager.totalCount} devices.`);
+/**
+ * A single failing event subscription must never abort module evaluation and
+ * leave the pack without any handlers at all.
+ * @param {string} name Human-readable subscription name for error logs.
+ * @param {() => void} subscribe Body that performs the actual subscription.
+ */
+function subscribeSafely(name, subscribe) {
+  try {
+    subscribe();
+  } catch (error) {
+    Debug.error("Main", `Could not subscribe to ${name}`, error);
+  }
+}
+
+subscribeSafely("initialization", () => {
+  system.run(() => {
+    Debug.info("Main", "Cursed Contraptions initializing...");
+    deviceManager.start();
+    deviceManager.discoverAll();
+    Debug.info("Main", `Loaded ${deviceManager.totalCount} devices.`);
+  });
 });
 
-world.afterEvents.playerPlaceBlock.subscribe((event) => {
+subscribeSafely("device placement", () => {
+  world.afterEvents.playerPlaceBlock.subscribe((event) => {
   const blockTypeId = event.block?.typeId;
   const entityTypeId = BLOCK_TO_ENTITY[blockTypeId];
   if (!entityTypeId) return;
@@ -76,6 +94,7 @@ world.afterEvents.playerPlaceBlock.subscribe((event) => {
       Debug.error("Main", `Could not place ${entityTypeId}`, error);
     }
   });
+  });
 });
 
 function handleInteract(player, target) {
@@ -92,15 +111,14 @@ function handleInteract(player, target) {
   device.onInteract(player, heldItem);
 }
 
-try {
+subscribeSafely("entity interactions", () => {
   world.afterEvents.playerInteractWithEntity.subscribe((event) => {
     system.run(() => handleInteract(event.player, event.target));
   });
-} catch (error) {
-  Debug.error("Main", "Could not subscribe to entity interactions", error);
-}
+});
 
-world.afterEvents.entityHurt.subscribe((event) => {
+subscribeSafely("device damage", () => {
+  world.afterEvents.entityHurt.subscribe((event) => {
   const hurtEntity = event.hurtEntity;
   if (!hurtEntity) return;
 
@@ -108,9 +126,11 @@ world.afterEvents.entityHurt.subscribe((event) => {
     const device = deviceManager.getDevice(hurtEntity);
     if (device && event.damage > 0) device.takeDamage(event.damage);
   }
+  });
 });
 
-world.afterEvents.entityDie.subscribe((event) => {
+subscribeSafely("entity death", () => {
+  world.afterEvents.entityDie.subscribe((event) => {
   const deadEntity = event.deadEntity;
   if (!deadEntity) return;
 
@@ -134,9 +154,11 @@ world.afterEvents.entityDie.subscribe((event) => {
     deadEntity.removeTag(TRAPPED_TAG);
     deadEntity.removeTag(CAPTURE_RESERVED_TAG);
   } catch (_) {}
+  });
 });
 
-world.afterEvents.entityLoad.subscribe((event) => {
+subscribeSafely("entity load", () => {
+  world.afterEvents.entityLoad.subscribe((event) => {
   const entity = event.entity;
   if (!entity) return;
 
@@ -156,9 +178,11 @@ world.afterEvents.entityLoad.subscribe((event) => {
     if (!isEntityValid(entity) || deviceManager.hasVictimOrPending(entity.id)) return;
     clearStaleCapture(entity);
   }, CONFIG.performance.chunkLoadGracePeriod + 5);
+  });
 });
 
-world.afterEvents.playerSpawn.subscribe((event) => {
+subscribeSafely("player spawn", () => {
+  world.afterEvents.playerSpawn.subscribe((event) => {
   const player = event.player;
   system.runTimeout(() => {
     if (!isEntityValid(player)) return;
@@ -171,12 +195,15 @@ world.afterEvents.playerSpawn.subscribe((event) => {
       }
     } catch (_) {}
   }, CONFIG.performance.chunkLoadGracePeriod + 5);
+  });
 });
 
-world.afterEvents.playerLeave.subscribe((event) => {
+subscribeSafely("player leave", () => {
+  world.afterEvents.playerLeave.subscribe((event) => {
   const playerId = String(event.playerId);
   const device = deviceManager.getDeviceByVictimId(playerId);
   if (device) device.onVictimUnavailable(playerId);
+  });
 });
 
 function clearStaleCapture(entity) {
@@ -194,7 +221,8 @@ function clearStaleCapture(entity) {
   try { entity.setDynamicProperty(MOVEMENT_SAVED_PROPERTY, undefined); } catch (_) {}
 }
 
-system.runInterval(() => {
+subscribeSafely("redstone polling", () => {
+  system.runInterval(() => {
   for (const device of deviceManager.devices.values()) {
     if (device._disposed || !device._entityValid()) continue;
     const position = device.position;
@@ -231,11 +259,22 @@ system.runInterval(() => {
     } catch (_) {
       // Redstone queries may fail at unloaded chunk boundaries.
     }
-    device.onRedstonePower(powered);
+    try {
+      device.onRedstonePower(powered);
+    } catch (error) {
+      // One broken device must never kill the shared polling interval.
+      Debug.error("Main", "Redstone poll failed for a device", error);
+    }
   }
-}, CONFIG.performance.redstonePollIntervalTicks);
+  }, CONFIG.performance.redstonePollIntervalTicks);
+});
 
-world.beforeEvents.chatSend.subscribe((event) => {
+// NOTE: `world.beforeEvents.chatSend` is a beta-only API and is undefined
+// when the pack runs on stable @minecraft/server (see v0.1.1 audit finding
+// F1). Until the command handler is migrated to scriptevent, subscribe only
+// if the API actually exists so module evaluation cannot throw here.
+subscribeSafely("admin chat commands", () => {
+  world.beforeEvents.chatSend?.subscribe((event) => {
   if (!event.message.startsWith("!cc ")) return;
   event.cancel = true;
   const sender = event.sender;
@@ -285,5 +324,6 @@ world.beforeEvents.chatSend.subscribe((event) => {
         sender.sendMessage(`§c[Cursed Contraptions] ${error.message || error}`);
       }
     }
+  });
   });
 });

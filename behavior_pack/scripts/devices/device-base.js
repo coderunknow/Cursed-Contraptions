@@ -525,7 +525,7 @@ export class TortureDevice {
     }
 
     if (victim.typeId === "minecraft:player") {
-      this._lockVictimMovement(victim, false);
+      this._lockVictimMovement(victim);
     }
   }
 
