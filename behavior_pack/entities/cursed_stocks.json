@@ -26,7 +26,7 @@
           "type": "int",
           "range": [
             0,
-            500
+            1000
           ],
           "default": 150,
           "client_sync": true
@@ -66,8 +66,8 @@
         "value": 1.0
       },
       "minecraft:health": {
-        "value": 150,
-        "max": 300
+        "value": 1000,
+        "max": 1000
       },
       "minecraft:damage_sensor": {
         "triggers": [
@@ -94,9 +94,6 @@
         "suffocate_time": -1,
         "breathes_air": true,
         "breathes_water": true
-      },
-      "minecraft:loot": {
-        "table": "loot_tables/entities/cursed_stocks.json"
       }
     },
     "events": {

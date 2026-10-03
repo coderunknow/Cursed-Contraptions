@@ -4,14 +4,26 @@
     "name": "Cursed Contraptions",
     "description": "Medieval torture contraptions for chaotic multiplayer fun. Place, trap, rescue, survive.",
     "uuid": "5e3f8acc-8654-545a-a5b0-cbf1f736a00e",
-    "version": [1, 0, 0],
-    "min_engine_version": [1, 21, 0]
+    "version": [
+      0,
+      1,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      21,
+      60
+    ]
   },
   "modules": [
     {
       "type": "resources",
       "uuid": "a7f025fd-caad-59b3-af44-f30ad4b7748e",
-      "version": [1, 0, 0]
+      "version": [
+        0,
+        1,
+        0
+      ]
     }
   ]
 }

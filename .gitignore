@@ -27,7 +27,7 @@ __pycache__/
 .venv/
 venv/
 
-# Node (if tooling added later)
+# Node tooling
 node_modules/
 npm-debug.log*
 

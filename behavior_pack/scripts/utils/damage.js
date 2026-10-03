@@ -1,40 +1,50 @@
 /**
  * Cursed Contraptions — Damage Utilities
- * 
- * Proper entity damage through Minecraft's health system.
- * No arbitrary instant-death commands.
  */
 
-import { EntityDamageCause, Entity } from "@minecraft/server";
+/** Supports both the 1.x method form and the 2.x property form of isValid. */
+export function isEntityValid(entity) {
+  if (!entity) return false;
 
-/**
- * Apply damage to an entity using the proper damage API.
- * Returns true if damage was applied.
- */
-export function applyDamage(entity, amount, cause = EntityDamageCause.contact) {
-  if (!entity || !entity.isValid()) return false;
-  
   try {
-    // Use the applyDamage method which respects armor, absorption, etc.
-    entity.applyDamage(amount, {
-      cause: cause,
-    });
-    return true;
-  } catch (err) {
+    return typeof entity.isValid === "function"
+      ? entity.isValid()
+      : entity.isValid === true;
+  } catch (_) {
     return false;
   }
 }
 
-/**
- * Generate a random damage value within a range.
- */
-export function randomDamage(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+/** Apply damage through Minecraft's entity API; return whether it succeeded. */
+export function applyDamage(entity, amount, cause = "contact") {
+  if (!isEntityValid(entity) || !Number.isFinite(amount) || amount <= 0) return false;
+
+  try {
+    return entity.applyDamage(amount, { cause }) !== false;
+  } catch (_) {
+    return false;
+  }
 }
 
-/**
- * Roll for extreme damage event.
- */
-export function rollExtremeDamage(chance) {
-  return Math.random() < chance;
+/** Return an inclusive integer in [min, max]. */
+export function randomDamage(min, max, random = Math.random) {
+  const lower = Math.ceil(Number(min));
+  const upper = Math.floor(Number(max));
+  if (!Number.isFinite(lower) || !Number.isFinite(upper) || lower > upper) {
+    throw new RangeError("Damage range must contain at least one finite integer");
+  }
+
+  const roll = Number(random());
+  if (!Number.isFinite(roll)) throw new TypeError("Random source must return a finite number");
+  const boundedRoll = Math.min(Math.max(roll, 0), 1 - Number.EPSILON);
+  return Math.floor(boundedRoll * (upper - lower + 1)) + lower;
+}
+
+/** Roll a probability in the inclusive range [0, 1]. */
+export function rollExtremeDamage(chance, random = Math.random) {
+  const probability = Number(chance);
+  if (!Number.isFinite(probability)) return false;
+  if (probability <= 0) return false;
+  if (probability >= 1) return true;
+  return Number(random()) < probability;
 }
