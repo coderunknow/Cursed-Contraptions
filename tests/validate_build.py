@@ -264,11 +264,7 @@ def validate_pack_references() -> tuple[int, int, int, int]:
     for path in block_ids.values():
         block = (json_data.get(path) or {}).get("minecraft:block", {})
         components = block.get("components", {})
-        geometry = components.get("minecraft:geometry")
         material_instances = components.get("minecraft:material_instances", {})
-        if geometry and geometry not in geometry_by_id:
-            # Populated below; defer this reference check.
-            pass
         for instance in material_instances.values():
             alias = instance.get("texture") if isinstance(instance, dict) else None
             if alias and alias not in terrain_aliases:
@@ -370,9 +366,6 @@ def validate_pack_references() -> tuple[int, int, int, int]:
                     for target_state in transition:
                         if target_state not in states:
                             report_error(f"Controller {controller_id}:{state_name} transitions to missing state {target_state}")
-
-    for path, block in block_ids.items():
-        pass
 
     # The block registry also maps each custom block to a terrain-atlas alias.
     block_registry_path = RP / "blocks.json"

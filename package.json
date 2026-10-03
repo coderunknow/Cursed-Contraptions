@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/unit/*.test.js && node --import ./tests/register-minecraft-loader.mjs --test tests/device-base.test.js tests/admin-commands.test.js",
+    "test": "node --test tests/unit/*.test.js && node --import ./tests/register-minecraft-loader.mjs --test tests/device-base.test.js tests/device-manager.test.js tests/admin-commands.test.js",
     "typecheck": "tsc -p tsconfig.json"
   },
   "engines": {

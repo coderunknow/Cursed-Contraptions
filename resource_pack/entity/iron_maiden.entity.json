@@ -23,11 +23,7 @@
       "scripts": {
         "animate": ["controller"]
       },
-      "render_controllers": ["controller.render.default"],
-      "spawn_egg": {
-        "base_color": "#3a3a3a",
-        "overlay_color": "#8b0000"
-      }
+      "render_controllers": ["controller.render.default"]
     }
   }
 }

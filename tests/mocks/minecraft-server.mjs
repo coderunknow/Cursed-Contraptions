@@ -126,7 +126,3 @@ export function advanceTicks(ticks) {
   }
   currentTick = endTick;
 }
-
-export function pendingTimerCount() {
-  return scheduled.size;
-}
