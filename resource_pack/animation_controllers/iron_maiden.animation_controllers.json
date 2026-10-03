@@ -1,0 +1,69 @@
+{
+  "format_version": "1.10.0",
+  "animation_controllers": {
+    "controller.animation.cc_iron_maiden.state": {
+      "initial_state": "idle",
+      "states": {
+        "idle": {
+          "animations": ["idle"],
+          "transitions": [
+            { "detecting": "query.has_tag('cc:anim_detecting')" },
+            { "capturing": "query.has_tag('cc:anim_capturing')" },
+            { "closed": "query.has_tag('cc:anim_closed')" },
+            { "torturing": "query.has_tag('cc:anim_torturing')" },
+            { "opening": "query.has_tag('cc:anim_opening')" },
+            { "released": "query.has_tag('cc:anim_released')" },
+            { "broken": "query.has_tag('cc:anim_broken')" }
+          ]
+        },
+        "detecting": {
+          "animations": ["idle"],
+          "transitions": [
+            { "capturing": "query.has_tag('cc:anim_capturing')" },
+            { "idle": "query.has_tag('cc:anim_idle')" },
+            { "broken": "query.has_tag('cc:anim_broken')" }
+          ]
+        },
+        "capturing": {
+          "animations": ["close"],
+          "transitions": [
+            { "closed": "query.has_tag('cc:anim_closed')" },
+            { "opening": "query.has_tag('cc:anim_opening')" },
+            { "broken": "query.has_tag('cc:anim_broken')" }
+          ]
+        },
+        "closed": {
+          "transitions": [
+            { "torturing": "query.has_tag('cc:anim_torturing')" },
+            { "opening": "query.has_tag('cc:anim_opening')" },
+            { "broken": "query.has_tag('cc:anim_broken')" }
+          ]
+        },
+        "torturing": {
+          "animations": ["torture"],
+          "transitions": [
+            { "opening": "query.has_tag('cc:anim_opening')" },
+            { "broken": "query.has_tag('cc:anim_broken')" }
+          ]
+        },
+        "opening": {
+          "animations": ["open"],
+          "transitions": [
+            { "released": "query.has_tag('cc:anim_released')" },
+            { "broken": "query.has_tag('cc:anim_broken')" }
+          ]
+        },
+        "released": {
+          "animations": ["open"],
+          "transitions": [
+            { "idle": "query.has_tag('cc:anim_idle')" },
+            { "broken": "query.has_tag('cc:anim_broken')" }
+          ]
+        },
+        "broken": {
+          "animations": ["broken"]
+        }
+      }
+    }
+  }
+}

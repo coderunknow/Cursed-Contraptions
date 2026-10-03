@@ -1,0 +1,21 @@
+{
+  "resource_pack_name": "Cursed Contraptions",
+  "texture_name": "atlas.terrain",
+  "texture_data": {
+    "cc_iron_maiden_side": {
+      "textures": "textures/blocks/cc_iron_maiden_side"
+    },
+    "cc_cursed_stocks_side": {
+      "textures": "textures/blocks/cc_cursed_stocks_side"
+    },
+    "cc_gravebinder_cage_side": {
+      "textures": "textures/blocks/cc_gravebinder_cage_side"
+    },
+    "cc_regret_rack_side": {
+      "textures": "textures/blocks/cc_regret_rack_side"
+    },
+    "cc_black_reliquary_side": {
+      "textures": "textures/blocks/cc_black_reliquary_side"
+    }
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "format_version": "1.16.0",
+  "minecraft:geometry": [
+    {
+      "description": {
+        "identifier": "geometry.cc_regret_rack",
+        "texture_width": 32,
+        "texture_height": 32,
+        "visible_bounds_width": 3,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [0, 0.75, 0]
+      },
+      "bones": [
+        {
+          "name": "base",
+          "pivot": [0, 0, 0],
+          "cubes": [
+            {
+              "origin": [-8, 0, -3],
+              "size": [16, 2, 6],
+              "uv": [0, 0]
+            }
+          ]
+        },
+        {
+          "name": "rail_left",
+          "parent": "base",
+          "pivot": [-7, 2, 0],
+          "cubes": [
+            {
+              "origin": [-8, 2, -1],
+              "size": [2, 2, 2],
+              "uv": [0, 8]
+            }
+          ]
+        },
+        {
+          "name": "rail_right",
+          "parent": "base",
+          "pivot": [7, 2, 0],
+          "cubes": [
+            {
+              "origin": [6, 2, -1],
+              "size": [2, 2, 2],
+              "uv": [0, 8]
+            }
+          ]
+        },
+        {
+          "name": "wheel_left",
+          "parent": "rail_left",
+          "pivot": [-7, 4, 0],
+          "cubes": [
+            {
+              "origin": [-9, 3, -2],
+              "size": [4, 4, 4],
+              "uv": [8, 8]
+            }
+          ]
+        },
+        {
+          "name": "wheel_right",
+          "parent": "rail_right",
+          "pivot": [7, 4, 0],
+          "cubes": [
+            {
+              "origin": [5, 3, -2],
+              "size": [4, 4, 4],
+              "uv": [8, 8]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.cc_gravebinder_cage.idle": {
+      "loop": true,
+      "animation_length": 5,
+      "bones": {
+        "door": {
+          "rotation": {
+            "0.0": [0, -80, 0],
+            "2.5": [0, -75, 0],
+            "5.0": [0, -80, 0]
+          }
+        },
+        "crystal": {}
+      }
+    },
+    "animation.cc_gravebinder_cage.close": {
+      "animation_length": 2,
+      "bones": {
+        "door": {
+          "rotation": {
+            "0.0": [0, -80, 0],
+            "1.5": [0, 0, 0],
+            "2.0": [0, 0, 0]
+          }
+        }
+      }
+    },
+    "animation.cc_gravebinder_cage.torture": {
+      "loop": true,
+      "animation_length": 3,
+      "bones": {
+        "bars": {
+          "scale": {
+            "0.0": [1, 1, 1],
+            "1.0": [0.95, 1, 0.95],
+            "2.0": [1, 1, 1],
+            "3.0": [1, 1, 1]
+          }
+        }
+      }
+    },
+    "animation.cc_gravebinder_cage.broken": {
+      "loop": true,
+      "bones": {
+        "door": {
+          "rotation": [5, -30, 0]
+        },
+        "top": {
+          "rotation": [0, 0, 5]
+        }
+      }
+    }
+  }
+}

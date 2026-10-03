@@ -1,0 +1,32 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "cc:gravebinder_cage",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "default": "textures/entity/gravebinder_cage"
+      },
+      "geometry": {
+        "default": "geometry.cc_gravebinder_cage"
+      },
+      "animations": {
+        "idle": "animation.cc_gravebinder_cage.idle",
+        "close": "animation.cc_gravebinder_cage.close",
+        "torture": "animation.cc_gravebinder_cage.torture",
+        "broken": "animation.cc_gravebinder_cage.broken",
+        "controller": "controller.animation.cc_gravebinder_cage.state"
+      },
+      "scripts": {
+        "animate": ["controller"]
+      },
+      "render_controllers": ["controller.render.default"],
+      "spawn_egg": {
+        "base_color": "#2d2d4a",
+        "overlay_color": "#6a0dad"
+      }
+    }
+  }
+}

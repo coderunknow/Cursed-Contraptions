@@ -1,0 +1,24 @@
+{
+  "format_version": "1.21.0",
+  "minecraft:recipe_shaped": {
+    "description": {
+      "identifier": "cc:recipe_regret_rack"
+    },
+    "tags": ["crafting_table"],
+    "pattern": [
+      "C C",
+      "PPP",
+      "IRI"
+    ],
+    "key": {
+      "C": { "item": "minecraft:chain" },
+      "P": { "item": "minecraft:oak_planks" },
+      "I": { "item": "minecraft:iron_ingot" },
+      "R": { "item": "minecraft:redstone" }
+    },
+    "result": {
+      "item": "cc:item_regret_rack",
+      "count": 1
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "cc:regret_rack",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "default": "textures/entity/regret_rack"
+      },
+      "geometry": {
+        "default": "geometry.cc_regret_rack"
+      },
+      "animations": {
+        "idle": "animation.cc_regret_rack.idle",
+        "stretch": "animation.cc_regret_rack.stretch",
+        "torture": "animation.cc_regret_rack.torture",
+        "broken": "animation.cc_regret_rack.broken",
+        "controller": "controller.animation.cc_regret_rack.state"
+      },
+      "scripts": {
+        "animate": ["controller"]
+      },
+      "render_controllers": ["controller.render.default"],
+      "spawn_egg": {
+        "base_color": "#5c4033",
+        "overlay_color": "#8b0000"
+      }
+    }
+  }
+}

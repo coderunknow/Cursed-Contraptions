@@ -1,0 +1,146 @@
+{
+  "format_version": "1.21.0",
+  "minecraft:entity": {
+    "description": {
+      "identifier": "cc:iron_maiden",
+      "is_spawnable": false,
+      "is_summonable": true,
+      "is_experimental": false,
+      "properties": {
+        "cc:state": {
+          "type": "enum",
+          "values": [
+            "idle",
+            "detecting",
+            "capturing",
+            "closed",
+            "torturing",
+            "opening",
+            "released",
+            "broken"
+          ],
+          "default": "idle",
+          "client_sync": true
+        },
+        "cc:durability": {
+          "type": "int",
+          "range": [
+            0,
+            500
+          ],
+          "default": 200,
+          "client_sync": true
+        },
+        "cc:armor_count": {
+          "type": "int",
+          "range": [
+            0,
+            4
+          ],
+          "default": 0,
+          "client_sync": true
+        }
+      }
+    },
+    "component_groups": {
+      "cc:breakable": {
+        "minecraft:health": {
+          "value": 200,
+          "max": 500
+        },
+        "minecraft:damage_sensor": {
+          "triggers": [
+            {
+              "cause": "all",
+              "deals_damage": true
+            }
+          ]
+        }
+      },
+      "cc:invulnerable": {
+        "minecraft:health": {
+          "value": 200,
+          "max": 500
+        },
+        "minecraft:damage_sensor": {
+          "triggers": [
+            {
+              "cause": "all",
+              "deals_damage": false
+            }
+          ]
+        }
+      }
+    },
+    "components": {
+      "minecraft:type_family": {
+        "family": [
+          "cc_device",
+          "iron_maiden",
+          "inanimate"
+        ]
+      },
+      "minecraft:collision_box": {
+        "width": 1.2,
+        "height": 2.2
+      },
+      "minecraft:physics": {
+        "has_gravity": true,
+        "has_collision": true
+      },
+      "minecraft:pushable": {
+        "is_pushable": false,
+        "is_pushable_by_piston": false
+      },
+      "minecraft:knockback_resistance": {
+        "value": 1.0
+      },
+      "minecraft:health": {
+        "value": 200,
+        "max": 500
+      },
+      "minecraft:damage_sensor": {
+        "triggers": [
+          {
+            "cause": "all",
+            "deals_damage": true
+          }
+        ]
+      },
+      "minecraft:interact": {
+        "interactions": [
+          {
+            "on_interact": {
+              "event": "cc:on_interact"
+            },
+            "use_item": false,
+            "interact_text": "Interact"
+          }
+        ]
+      },
+      "minecraft:nameable": {
+        "always_show": false
+      },
+      "minecraft:persistent": {},
+      "minecraft:is_hidden_when_invisible": {},
+      "minecraft:breathable": {
+        "total_supply": 999,
+        "suffocate_time": -1,
+        "breathes_air": true,
+        "breathes_water": true
+      },
+      "minecraft:loot": {
+        "table": "loot_tables/entities/iron_maiden.json"
+      }
+    },
+    "events": {
+      "cc:on_interact": {
+        "queue_command": {
+          "command": [
+            "say Interacting with Iron Maiden"
+          ]
+        }
+      }
+    }
+  }
+}
