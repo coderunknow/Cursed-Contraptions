@@ -70,7 +70,7 @@ inside Minecraft — see `tests/GAMETESTS.md` for the human verification checkli
 - **L2.** Mock harness extended with stable-1.17.0-accurate `world.afterEvents`
   / `system.afterEvents.scriptEventReceive` signals (including namespace
   filtering) and `world.getDimension`; added admin-command and device-manager
-  regression tests (suite: 21 → 31 tests).
+  regression tests (suite: 21 → 32 tests).
 - **L3.** Added a dev-only GameTest behavior pack in `tests/gametest/` plus
   `tests/GAMETESTS.md` so a human can run the in-engine checklist (~10 minutes).
   It is not part of the shipped `.mcaddon`.
