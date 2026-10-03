@@ -12,7 +12,7 @@ Release **v0.1.0** · Requires **Minecraft Bedrock 1.21.60 or newer**. Uses the 
 - Nearby teammates can open an occupied device. Captured players cannot rescue themselves.
 - Armor pieces reinforce an unoccupied device; interacting with an occupied device rescues first.
 - Redstone activation, persisted device state, breakable durability, and a single item drop on break.
-- Device count and active-device limits, local entity queries, and bounded timers to keep work predictable.
+- Active-device limits, local entity queries, and bounded timers to keep work predictable.
 
 ## Install
 
@@ -97,11 +97,11 @@ O = Obsidian   N = Netherite Ingot   E = End Crystal   R = Redstone Block
 
 ## Admin tools
 
-Debug chat commands are restricted to players tagged `cc:admin`. An operator can grant the tag with `/tag <player> add cc:admin`.
+Admin commands run through `/scriptevent`, so they only need the stable API — but `/scriptevent` requires **cheats enabled** in the world. Commands are restricted to players tagged `cc:admin`; an operator can grant the tag with `/tag <player> add cc:admin`.
 
-- `!cc give` — Add all five devices to your inventory.
-- `!cc devices` — List registered devices and their state/durability.
-- `!cc debug on` / `!cc debug off` — Toggle server and chat debug logging.
+- `/scriptevent cc:give` — Add all five devices to your inventory.
+- `/scriptevent cc:devices` — List registered devices and their state/durability.
+- `/scriptevent cc:debug on` / `/scriptevent cc:debug off` — Toggle server and chat debug logging.
 
 ## Build and tests
 

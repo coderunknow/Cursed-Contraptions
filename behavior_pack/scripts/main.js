@@ -269,61 +269,90 @@ subscribeSafely("redstone polling", () => {
   }, CONFIG.performance.redstonePollIntervalTicks);
 });
 
-// NOTE: `world.beforeEvents.chatSend` is a beta-only API and is undefined
-// when the pack runs on stable @minecraft/server (see v0.1.1 audit finding
-// F1). Until the command handler is migrated to scriptevent, subscribe only
-// if the API actually exists so module evaluation cannot throw here.
-subscribeSafely("admin chat commands", () => {
-  world.beforeEvents.chatSend?.subscribe((event) => {
-  if (!event.message.startsWith("!cc ")) return;
-  event.cancel = true;
-  const sender = event.sender;
-  const command = event.message.trim().toLowerCase();
+/**
+ * Admin commands arrive as /scriptevent so they work with the stable
+ * @minecraft/server dependency. The beta-only world.beforeEvents.chatSend
+ * API is undefined under the stable types (audit finding F1), so the old
+ * !cc chat commands never ran at all.
+ *
+ * Commands (cheats must be enabled; every command requires the cc:admin tag):
+ *   /scriptevent cc:give      — add all five devices to your inventory
+ *   /scriptevent cc:devices   — list registered devices and their state
+ *   /scriptevent cc:debug on  — enable debug logging
+ *   /scriptevent cc:debug off — disable debug logging
+ */
+function handleAdminScriptEvent(event) {
+  const sender = event.sourceEntity;
+  if (!isEntityValid(sender) || sender.typeId !== "minecraft:player") return;
 
-  system.run(() => {
-    if (!isEntityValid(sender)) return;
-    if (!sender.hasTag("cc:admin")) {
-      sender.sendMessage("§cCursed Contraptions debug commands require the cc:admin tag.");
+  let isAdmin = false;
+  try {
+    isAdmin = sender.hasTag("cc:admin");
+  } catch (_) {
+    isAdmin = false;
+  }
+  if (!isAdmin) {
+    try { sender.sendMessage("§cCursed Contraptions admin commands require the cc:admin tag."); } catch (_) {}
+    return;
+  }
+
+  switch (event.id) {
+    case "cc:give":
+      giveAdminDevices(sender);
       return;
-    }
-
-    if (command === "!cc devices") {
-      const lines = [
-        "§6[Cursed Contraptions]",
-        `Total: ${deviceManager.totalCount}, Active: ${deviceManager.activeCount}`,
-      ];
-      for (const device of deviceManager.devices.values()) {
-        lines.push(`  ${device.typeId} — ${device.stateMachine.state} — Durability: ${device.durability}/${device.maxDurability}`);
-      }
-      sender.sendMessage(lines.join("\n"));
+    case "cc:devices":
+      listAdminDevices(sender);
       return;
-    }
-
-    if (command === "!cc debug on" || command === "!cc debug off") {
-      const enabled = command.endsWith("on");
-      CONFIG.debug.enabled = enabled;
-      CONFIG.debug.chatDebug = enabled;
-      sender.sendMessage(`§${enabled ? "a" : "c"}[Cursed Contraptions] Debug ${enabled ? "enabled" : "disabled"}.`);
+    case "cc:debug":
+      toggleAdminDebug(sender, event.message);
       return;
-    }
+    default:
+      sender.sendMessage("§e[Cursed Contraptions] Unknown command. Use /scriptevent cc:give, /scriptevent cc:devices, or /scriptevent cc:debug on|off.");
+  }
+}
 
-    if (command === "!cc give") {
-      try {
-        const inventory = sender.getComponent("minecraft:inventory")?.container;
-        if (!inventory) throw new Error("Player inventory is unavailable");
-        let added = 0;
-        let remaining = 0;
-        for (const itemId of DEVICE_ITEMS) {
-          if (inventory.addItem(new ItemStack(itemId, 1))) remaining++;
-          else added++;
-        }
-        sender.sendMessage(remaining
-          ? `§eAdded ${added} device(s); inventory space ran out.`
-          : "§a[Cursed Contraptions] All five devices were added.");
-      } catch (error) {
-        sender.sendMessage(`§c[Cursed Contraptions] ${error.message || error}`);
-      }
+function giveAdminDevices(sender) {
+  try {
+    const inventory = sender.getComponent("minecraft:inventory")?.container;
+    if (!inventory) throw new Error("Player inventory is unavailable");
+    let added = 0;
+    let remaining = 0;
+    for (const itemId of DEVICE_ITEMS) {
+      // Container.addItem returns undefined when the whole stack fits, or the
+      // leftover stack when it does not — a truthy result means the device
+      // could not be added. Do not "fix" these branches (audit finding F2).
+      if (inventory.addItem(new ItemStack(itemId, 1))) remaining++;
+      else added++;
     }
-  });
-  });
+    sender.sendMessage(remaining
+      ? `§e[Cursed Contraptions] Added ${added} device(s); inventory space ran out.`
+      : "§a[Cursed Contraptions] All five devices were added.");
+  } catch (error) {
+    sender.sendMessage(`§c[Cursed Contraptions] ${error.message || error}`);
+  }
+}
+
+function listAdminDevices(sender) {
+  // One message per entry: a single concatenated chat string is truncated by
+  // the client once it exceeds a few hundred characters (audit finding F6).
+  sender.sendMessage(`§6[Cursed Contraptions] Total: ${deviceManager.totalCount}, Active: ${deviceManager.activeCount}`);
+  for (const device of deviceManager.devices.values()) {
+    sender.sendMessage(`  ${device.typeId} — ${device.stateMachine.state} — Durability: ${device.durability}/${device.maxDurability}`);
+  }
+}
+
+function toggleAdminDebug(sender, message) {
+  const argument = String(message || "").trim().toLowerCase();
+  if (argument !== "on" && argument !== "off") {
+    sender.sendMessage("§e[Cursed Contraptions] Use /scriptevent cc:debug on or /scriptevent cc:debug off.");
+    return;
+  }
+  const enabled = argument === "on";
+  CONFIG.debug.enabled = enabled;
+  CONFIG.debug.chatDebug = enabled;
+  sender.sendMessage(`§${enabled ? "a" : "c"}[Cursed Contraptions] Debug ${enabled ? "enabled" : "disabled"}.`);
+}
+
+subscribeSafely("admin commands", () => {
+  system.afterEvents.scriptEventReceive.subscribe(handleAdminScriptEvent, { namespaces: ["cc"] });
 });
