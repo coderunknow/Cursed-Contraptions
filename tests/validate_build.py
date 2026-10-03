@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BP = ROOT / "behavior_pack"
 RP = ROOT / "resource_pack"
-RELEASE_VERSION = [0, 1, 0]
+RELEASE_VERSION = [0, 1, 1]
 MIN_ENGINE_VERSION = [1, 21, 60]
 SERVER_API_VERSION = "1.17.0"
 EXPECTED_PACKAGES = {
@@ -83,7 +83,7 @@ def validate_manifests() -> tuple[dict | None, dict | None]:
         if not header.get("name"):
             report_error(f"{name} manifest has no header name")
         if header.get("version") != RELEASE_VERSION:
-            report_error(f"{name} manifest must be version 0.1.0")
+            report_error(f"{name} manifest must be version 0.1.1")
         if header.get("min_engine_version") != MIN_ENGINE_VERSION:
             report_error(f"{name} minimum engine version must be 1.21.60")
 
@@ -94,7 +94,7 @@ def validate_manifests() -> tuple[dict | None, dict | None]:
         for index, module in enumerate(modules):
             validate_uuid(module.get("uuid"), f"{name} module[{index}]", seen_uuids)
             if module.get("version") != RELEASE_VERSION:
-                report_error(f"{name} module[{index}] must be version 0.1.0")
+                report_error(f"{name} module[{index}] must be version 0.1.1")
             entry = module.get("entry")
             if entry:
                 entry_path = pack_root(name) / entry
@@ -107,7 +107,7 @@ def validate_manifests() -> tuple[dict | None, dict | None]:
         if len(pack_dependencies) != 1:
             report_error("behavior pack must depend on exactly one resource pack UUID")
         elif pack_dependencies[0].get("uuid") != resource_uuid or pack_dependencies[0].get("version") != RELEASE_VERSION:
-            report_error("behavior pack resource dependency UUID/version does not match resource pack v0.1.0")
+            report_error("behavior pack resource dependency UUID/version does not match resource pack v0.1.1")
 
         server_dependencies = [
             dependency for dependency in bp.get("dependencies", [])

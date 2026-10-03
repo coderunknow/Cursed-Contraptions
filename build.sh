@@ -8,7 +8,7 @@ OUTPUT="$SCRIPT_DIR/Cursed-Contraptions.mcaddon"
 TEMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
-printf '%s\n' "=== Cursed Contraptions v0.1.0 Build ==="
+printf '%s\n' "=== Cursed Contraptions v0.1.1 Build ==="
 python3 "$SCRIPT_DIR/tests/validate_build.py"
 
 printf '\n%s\n' "Packaging behavior and resource packs..."

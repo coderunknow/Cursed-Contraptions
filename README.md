@@ -2,7 +2,7 @@
 
 **Five animated, placeable trap devices for Minecraft Bedrock multiplayer.**
 
-Release **v0.1.0** · Requires **Minecraft Bedrock 1.21.60 or newer**. Uses the stable `@minecraft/server` 1.17.0 API; no Beta APIs toggle is required.
+Release **v0.1.1** · Requires **Minecraft Bedrock 1.21.60 or newer**. Uses the stable `@minecraft/server` 1.17.0 API; no Beta APIs toggle is required.
 
 ## Features
 
@@ -105,21 +105,23 @@ Admin commands run through `/scriptevent`, so they only need the stable API — 
 
 ## Build and tests
 
-Requirements: Python 3, Node.js 22+, and Info-ZIP (`zip`). No npm dependencies are required.
+Requirements: Python 3, Node.js 22+, and Info-ZIP (`zip`). The packs themselves have no runtime dependencies; `npm install` fetches dev-only type-checking tooling (`typescript`, `@minecraft/server` typings) that never ships inside the packs.
 
 ```bash
-npm test       # Unit and device-lifecycle tests
-./build.sh     # Validate pack references and package the .mcaddon
+npm install        # Dev-only tooling for the type-check gate
+npm test           # Unit, manager, admin-command, and device-lifecycle tests
+npm run typecheck  # Type-check behavior-pack scripts against the stable 1.17.0 API surface
+./build.sh         # Validate pack references and package the .mcaddon
 ```
 
-The automated suite checks JavaScript syntax, state transitions, persistence helpers, gameplay lifecycle behavior, pack references, manifest compatibility, and the final archive layout. Actual rendering, redstone behavior, and multiplayer play still require an in-game Bedrock test; they are not claimed as verified by the automated suite.
+The automated suite checks JavaScript syntax, type conformance against the stable `@minecraft/server` 1.17.0 typings, state transitions, persistence helpers, gameplay lifecycle behavior, admin command handling, pack references, manifest compatibility, and the final archive layout. Actual rendering, redstone behavior, and multiplayer play still require an in-game Bedrock test; they are not claimed as verified by the automated suite. See `tests/GAMETESTS.md` for a human-runnable in-engine checklist.
 
 ## Development notes
 
 - Behavior pack logic is in `behavior_pack/scripts/`; each device uses the shared `TortureDevice` lifecycle.
 - Entity dynamic properties persist server-side state; client-sync entity properties mirror state, durability, and reinforcement count.
 - Device detection is local, idle checks are throttled, and the active-device ceiling is enforced.
-- Natural structure/world generation and structure loot are not implemented in v0.1.0.
+- Natural structure/world generation and structure loot are not implemented in v0.1.1.
 
 ## License
 
