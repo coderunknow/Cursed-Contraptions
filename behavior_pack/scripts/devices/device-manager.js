@@ -135,7 +135,12 @@ class DeviceManager {
         ? pollIdleDevices
         : true;
 
-      device.tick(canActivate, shouldCheckForTargets);
+      try {
+        device.tick(canActivate, shouldCheckForTargets);
+      } catch (error) {
+        // One broken device must never kill the shared tick interval.
+        Debug.error("Manager", `Tick failed for device ${entityId}`, error);
+      }
 
       const isActive = ACTIVE_STATES.has(device.stateMachine.state);
       if (!wasActive && isActive) activeCount++;

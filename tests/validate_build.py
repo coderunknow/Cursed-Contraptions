@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BP = ROOT / "behavior_pack"
 RP = ROOT / "resource_pack"
-RELEASE_VERSION = [0, 1, 0]
+RELEASE_VERSION = [0, 1, 1]
 MIN_ENGINE_VERSION = [1, 21, 60]
 SERVER_API_VERSION = "1.17.0"
 EXPECTED_PACKAGES = {
@@ -83,7 +83,7 @@ def validate_manifests() -> tuple[dict | None, dict | None]:
         if not header.get("name"):
             report_error(f"{name} manifest has no header name")
         if header.get("version") != RELEASE_VERSION:
-            report_error(f"{name} manifest must be version 0.1.0")
+            report_error(f"{name} manifest must be version 0.1.1")
         if header.get("min_engine_version") != MIN_ENGINE_VERSION:
             report_error(f"{name} minimum engine version must be 1.21.60")
 
@@ -94,7 +94,7 @@ def validate_manifests() -> tuple[dict | None, dict | None]:
         for index, module in enumerate(modules):
             validate_uuid(module.get("uuid"), f"{name} module[{index}]", seen_uuids)
             if module.get("version") != RELEASE_VERSION:
-                report_error(f"{name} module[{index}] must be version 0.1.0")
+                report_error(f"{name} module[{index}] must be version 0.1.1")
             entry = module.get("entry")
             if entry:
                 entry_path = pack_root(name) / entry
@@ -107,7 +107,7 @@ def validate_manifests() -> tuple[dict | None, dict | None]:
         if len(pack_dependencies) != 1:
             report_error("behavior pack must depend on exactly one resource pack UUID")
         elif pack_dependencies[0].get("uuid") != resource_uuid or pack_dependencies[0].get("version") != RELEASE_VERSION:
-            report_error("behavior pack resource dependency UUID/version does not match resource pack v0.1.0")
+            report_error("behavior pack resource dependency UUID/version does not match resource pack v0.1.1")
 
         server_dependencies = [
             dependency for dependency in bp.get("dependencies", [])
@@ -264,11 +264,7 @@ def validate_pack_references() -> tuple[int, int, int, int]:
     for path in block_ids.values():
         block = (json_data.get(path) or {}).get("minecraft:block", {})
         components = block.get("components", {})
-        geometry = components.get("minecraft:geometry")
         material_instances = components.get("minecraft:material_instances", {})
-        if geometry and geometry not in geometry_by_id:
-            # Populated below; defer this reference check.
-            pass
         for instance in material_instances.values():
             alias = instance.get("texture") if isinstance(instance, dict) else None
             if alias and alias not in terrain_aliases:
@@ -370,9 +366,6 @@ def validate_pack_references() -> tuple[int, int, int, int]:
                     for target_state in transition:
                         if target_state not in states:
                             report_error(f"Controller {controller_id}:{state_name} transitions to missing state {target_state}")
-
-    for path, block in block_ids.items():
-        pass
 
     # The block registry also maps each custom block to a terrain-atlas alias.
     block_registry_path = RP / "blocks.json"

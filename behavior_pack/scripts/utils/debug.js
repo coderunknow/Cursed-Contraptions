@@ -42,23 +42,4 @@ export class Debug {
       } catch (_) {}
     }
   }
-
-  /**
-   * Inspect a device's state for debugging.
-   */
-  static inspectDevice(device) {
-    if (!CONFIG.debug.enabled) return;
-    Debug.info("DEBUG", JSON.stringify({
-      type: device.typeId,
-      state: device.stateMachine.state,
-      durability: device.durability,
-      maxDurability: device.maxDurability,
-      victimId: device.victimId || "none",
-      armorCount: device.armorCount,
-      position: device.position ? 
-        `${device.position.x.toFixed(1)}, ${device.position.y.toFixed(1)}, ${device.position.z.toFixed(1)}` 
-        : "unknown",
-      activeTimer: device._tortureTimer ? "running" : "none",
-    }));
-  }
 }

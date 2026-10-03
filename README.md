@@ -2,7 +2,7 @@
 
 **Five animated, placeable trap devices for Minecraft Bedrock multiplayer.**
 
-Release **v0.1.0** · Requires **Minecraft Bedrock 1.21.60 or newer**. Uses the stable `@minecraft/server` 1.17.0 API; no Beta APIs toggle is required.
+Release **v0.1.1** · Requires **Minecraft Bedrock 1.21.60 or newer**. Uses the stable `@minecraft/server` 1.17.0 API; no Beta APIs toggle is required.
 
 ## Features
 
@@ -12,7 +12,7 @@ Release **v0.1.0** · Requires **Minecraft Bedrock 1.21.60 or newer**. Uses the 
 - Nearby teammates can open an occupied device. Captured players cannot rescue themselves.
 - Armor pieces reinforce an unoccupied device; interacting with an occupied device rescues first.
 - Redstone activation, persisted device state, breakable durability, and a single item drop on break.
-- Device count and active-device limits, local entity queries, and bounded timers to keep work predictable.
+- Active-device limits, local entity queries, and bounded timers to keep work predictable.
 
 ## Install
 
@@ -97,29 +97,31 @@ O = Obsidian   N = Netherite Ingot   E = End Crystal   R = Redstone Block
 
 ## Admin tools
 
-Debug chat commands are restricted to players tagged `cc:admin`. An operator can grant the tag with `/tag <player> add cc:admin`.
+Admin commands run through `/scriptevent`, so they only need the stable API — but `/scriptevent` requires **cheats enabled** in the world. Commands are restricted to players tagged `cc:admin`; an operator can grant the tag with `/tag <player> add cc:admin`.
 
-- `!cc give` — Add all five devices to your inventory.
-- `!cc devices` — List registered devices and their state/durability.
-- `!cc debug on` / `!cc debug off` — Toggle server and chat debug logging.
+- `/scriptevent cc:give` — Add all five devices to your inventory.
+- `/scriptevent cc:devices` — List registered devices and their state/durability.
+- `/scriptevent cc:debug on` / `/scriptevent cc:debug off` — Toggle server and chat debug logging.
 
 ## Build and tests
 
-Requirements: Python 3, Node.js 22+, and Info-ZIP (`zip`). No npm dependencies are required.
+Requirements: Python 3, Node.js 22+, and Info-ZIP (`zip`). The packs themselves have no runtime dependencies; `npm install` fetches dev-only type-checking tooling (`typescript`, `@minecraft/server` typings) that never ships inside the packs.
 
 ```bash
-npm test       # Unit and device-lifecycle tests
-./build.sh     # Validate pack references and package the .mcaddon
+npm install        # Dev-only tooling for the type-check gate
+npm test           # Unit, manager, admin-command, and device-lifecycle tests
+npm run typecheck  # Type-check behavior-pack scripts against the stable 1.17.0 API surface
+./build.sh         # Validate pack references and package the .mcaddon
 ```
 
-The automated suite checks JavaScript syntax, state transitions, persistence helpers, gameplay lifecycle behavior, pack references, manifest compatibility, and the final archive layout. Actual rendering, redstone behavior, and multiplayer play still require an in-game Bedrock test; they are not claimed as verified by the automated suite.
+The automated suite checks JavaScript syntax, type conformance against the stable `@minecraft/server` 1.17.0 typings, state transitions, persistence helpers, gameplay lifecycle behavior, admin command handling, pack references, manifest compatibility, and the final archive layout. Actual rendering, redstone behavior, and multiplayer play still require an in-game Bedrock test; they are not claimed as verified by the automated suite. See `tests/GAMETESTS.md` for a human-runnable in-engine checklist.
 
 ## Development notes
 
 - Behavior pack logic is in `behavior_pack/scripts/`; each device uses the shared `TortureDevice` lifecycle.
 - Entity dynamic properties persist server-side state; client-sync entity properties mirror state, durability, and reinforcement count.
 - Device detection is local, idle checks are throttled, and the active-device ceiling is enforced.
-- Natural structure/world generation and structure loot are not implemented in v0.1.0.
+- Natural structure/world generation and structure loot are not implemented in v0.1.1.
 
 ## License
 

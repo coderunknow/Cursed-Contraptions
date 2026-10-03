@@ -525,7 +525,7 @@ export class TortureDevice {
     }
 
     if (victim.typeId === "minecraft:player") {
-      this._lockVictimMovement(victim, false);
+      this._lockVictimMovement(victim);
     }
   }
 
@@ -615,24 +615,11 @@ export class TortureDevice {
       return candidate;
     }
 
-    if (includeOutOfRange || !this._entityValid()) return null;
-    const position = this.position;
-    if (!position) return null;
-
-    try {
-      const nearby = this.entity.dimension.getEntities({
-        location: position,
-        maxDistance: CONFIG.performance.entityScanRadius,
-        tags: [TRAPPED_TAG],
-      });
-      for (const candidate of nearby) {
-        if (String(candidate.id) === String(this.victimId) && isEntityValid(candidate)) {
-          this._victimEntity = candidate;
-          return candidate;
-        }
-      }
-    } catch (_) {}
-
+    // Direct identifier lookups above are authoritative: world.getEntity and
+    // Dimension.getEntities read from the same loaded-entity registry, and
+    // the same dimension/distance rules already ran for every candidate, so
+    // a tag-scoped proximity scan cannot find a victim the id lookups
+    // rejected (v0.1.1 audit finding F5).
     return null;
   }
 

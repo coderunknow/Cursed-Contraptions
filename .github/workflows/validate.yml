@@ -18,6 +18,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Install dev tooling
+        run: npm ci
+      - name: Type-check behavior pack scripts
+        run: npm run typecheck
       - name: Test gameplay logic
         run: npm test
       - name: Validate and package add-on
