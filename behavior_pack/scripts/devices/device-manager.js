@@ -1,187 +1,178 @@
 /**
  * Cursed Contraptions — Device Manager
- * 
- * Central registry for all active torture devices.
- * Handles entity lifecycle, chunk events, and the tick loop.
- * 
- * Performance architecture:
- *   - Only active devices (those with victims or powered) tick frequently
- *   - Idle devices check for entities at a reduced rate
- *   - Broken/disposed devices are removed immediately
- *   - No global entity scans — each device only checks its local area
+ *
+ * Owns device registration, load recovery, and the bounded gameplay tick loop.
  */
 
 import { world, system } from "@minecraft/server";
 import { CONFIG } from "../config.js";
 import { Debug } from "../utils/debug.js";
 import { DeviceState } from "../utils/state-machine.js";
-import { IronMaiden } from "../devices/iron-maiden.js";
-import { CursedStocks } from "../devices/cursed-stocks.js";
-import { GravebinderCage } from "../devices/gravebinder-cage.js";
-import { RegretRack } from "../devices/regret-rack.js";
-import { BlackReliquary } from "../devices/black-reliquary.js";
+import { IronMaiden } from "./iron-maiden.js";
+import { CursedStocks } from "./cursed-stocks.js";
+import { GravebinderCage } from "./gravebinder-cage.js";
+import { RegretRack } from "./regret-rack.js";
+import { BlackReliquary } from "./black-reliquary.js";
 
-// Map of entity type ID → device class constructor
-const DEVICE_TYPES = {
-  "cc:iron_maiden":      IronMaiden,
-  "cc:cursed_stocks":    CursedStocks,
+const DEVICE_TYPES = Object.freeze({
+  "cc:iron_maiden": IronMaiden,
+  "cc:cursed_stocks": CursedStocks,
   "cc:gravebinder_cage": GravebinderCage,
-  "cc:regret_rack":      RegretRack,
-  "cc:black_reliquary":  BlackReliquary,
-};
+  "cc:regret_rack": RegretRack,
+  "cc:black_reliquary": BlackReliquary,
+});
+
+const ACTIVE_STATES = new Set([
+  DeviceState.DETECTING,
+  DeviceState.CAPTURING,
+  DeviceState.CLOSED,
+  DeviceState.TORTURING,
+  DeviceState.OPENING,
+]);
 
 class DeviceManager {
   constructor() {
-    /** @type {Map<string, TortureDevice>} entityId → device */
     this.devices = new Map();
     this._tickHandle = null;
     this._tickCounter = 0;
+    this._nextIdlePollTick = CONFIG.performance.idlePollIntervalTicks;
     this._initialized = false;
   }
 
-  /**
-   * Register a device entity. Creates the appropriate device instance
-   * and adds it to the registry.
-   */
   register(entity) {
-    if (!entity || !entity.isValid()) return null;
-    const typeId = entity.typeId;
-    const DeviceClass = DEVICE_TYPES[typeId];
+    if (!entity || !this._isValid(entity)) return null;
+    const DeviceClass = DEVICE_TYPES[entity.typeId];
     if (!DeviceClass) {
-      Debug.warn("Manager", `Unknown device type: ${typeId}`);
+      Debug.warn("Manager", `Unknown device type: ${entity.typeId}`);
       return null;
     }
 
-    // Prevent duplicates
-    const eid = String(entity.id);
-    if (this.devices.has(eid)) {
-      return this.devices.get(eid);
-    }
+    const entityId = String(entity.id);
+    const existing = this.devices.get(entityId);
+    if (existing) return existing;
 
-    const device = new DeviceClass(entity);
-    this.devices.set(eid, device);
-    Debug.info("Manager", `Registered ${typeId} (${this.devices.size} total)`);
-    return device;
+    try {
+      const device = new DeviceClass(entity);
+      this.devices.set(entityId, device);
+      Debug.info("Manager", `Registered ${entity.typeId} (${this.devices.size} total)`);
+      return device;
+    } catch (error) {
+      Debug.error("Manager", `Could not register ${entity.typeId}`, error);
+      return null;
+    }
   }
 
-  /**
-   * Unregister a device entity.
-   */
   unregister(entityId) {
-    const eid = String(entityId);
-    const device = this.devices.get(eid);
-    if (device) {
-      device.dispose();
-      this.devices.delete(eid);
-      Debug.info("Manager", `Unregistered device (${this.devices.size} remaining)`);
-    }
+    const id = String(entityId);
+    const device = this.devices.get(id);
+    if (!device) return false;
+
+    device.dispose();
+    this.devices.delete(id);
+    Debug.info("Manager", `Unregistered device (${this.devices.size} remaining)`);
+    return true;
   }
 
-  /**
-   * Get a device by entity reference.
-   */
   getDevice(entity) {
-    if (!entity) return null;
-    return this.devices.get(String(entity.id)) || null;
+    return entity ? this.devices.get(String(entity.id)) || null : null;
   }
 
-  /**
-   * Start the manager tick loop.
-   */
+  getDeviceByVictimId(victimId) {
+    const id = String(victimId);
+    for (const device of this.devices.values()) {
+      if (String(device.victimId) === id || String(device._pendingTargetId) === id) return device;
+    }
+    return null;
+  }
+
+  hasVictimOrPending(victimId) {
+    return this.getDeviceByVictimId(victimId) !== null;
+  }
+
   start() {
     if (this._initialized) return;
     this._initialized = true;
-
-    // Main tick loop — runs every N ticks
-    this._tickHandle = system.runInterval(() => {
-      this._tick();
-    }, 5); // Check every 5 ticks (0.25 seconds)
-
+    this._tickHandle = system.runInterval(
+      () => this._tick(),
+      CONFIG.performance.pollIntervalTicks,
+    );
     Debug.info("Manager", "Device manager started");
   }
 
   stop() {
-    if (this._tickHandle) {
+    if (this._tickHandle !== null) {
       try { system.clearRun(this._tickHandle); } catch (_) {}
       this._tickHandle = null;
     }
-    // Dispose all devices
-    for (const [_, device] of this.devices) {
-      device.dispose();
-    }
+    for (const device of this.devices.values()) device.dispose();
     this.devices.clear();
     this._initialized = false;
     Debug.info("Manager", "Device manager stopped");
   }
 
-  /**
-   * Internal tick — processes active devices and periodically checks idle ones.
-   */
   _tick() {
-    this._tickCounter++;
+    this._tickCounter += CONFIG.performance.pollIntervalTicks;
+    const pollIdleDevices = this._tickCounter >= this._nextIdlePollTick;
+    if (pollIdleDevices) {
+      do {
+        this._nextIdlePollTick += CONFIG.performance.idlePollIntervalTicks;
+      } while (this._nextIdlePollTick <= this._tickCounter);
+    }
 
-    const toRemove = [];
+    let activeCount = this.activeCount;
+    const removed = [];
 
-    for (const [eid, device] of this.devices) {
-      // Check if entity is still valid
+    for (const [entityId, device] of this.devices) {
       if (!device._entityValid()) {
-        toRemove.push(eid);
+        device.dispose();
+        removed.push(entityId);
         continue;
       }
 
-      const state = device.stateMachine.state;
+      const wasActive = ACTIVE_STATES.has(device.stateMachine.state);
+      const canActivate = activeCount < CONFIG.performance.maxActiveDevices;
+      const shouldCheckForTargets = device.stateMachine.is(DeviceState.IDLE)
+        ? pollIdleDevices
+        : true;
 
-      // Active states get ticked every cycle
-      if (state === DeviceState.TORTURING || state === DeviceState.CAPTURING || state === DeviceState.DETECTING) {
-        device.tick();
-      }
-      // Idle devices check for entities at a reduced rate
-      else if (state === DeviceState.IDLE) {
-        if (this._tickCounter % 4 === 0) { // ~every second at 5-tick interval
-          device.tick();
-        }
-      }
-      // Other states don't need ticking
+      device.tick(canActivate, shouldCheckForTargets);
+
+      const isActive = ACTIVE_STATES.has(device.stateMachine.state);
+      if (!wasActive && isActive) activeCount++;
+      else if (wasActive && !isActive) activeCount = Math.max(0, activeCount - 1);
     }
 
-    // Clean up removed devices
-    for (const eid of toRemove) {
-      const device = this.devices.get(eid);
-      if (device) device.dispose();
-      this.devices.delete(eid);
-    }
+    for (const entityId of removed) this.devices.delete(entityId);
   }
 
-  /**
-   * Discover and register all device entities in the world.
-   * Called on world load to restore state.
-   */
   discoverAll() {
-    for (const dimId of ["minecraft:overworld", "minecraft:nether", "minecraft:the_end"]) {
+    let discovered = 0;
+    for (const dimensionId of ["minecraft:overworld", "minecraft:nether", "minecraft:the_end"]) {
       try {
-        const dim = world.getDimension(dimId);
-        for (const typeId of Object.keys(DEVICE_TYPES)) {
-          try {
-            const entities = dim.getEntities({ type: typeId });
-            for (const entity of entities) {
-              this.register(entity);
-            }
-          } catch (_) {}
+        const dimension = world.getDimension(dimensionId);
+        for (const entity of dimension.getEntities({ families: ["cc_device"] })) {
+          if (this.register(entity)) discovered++;
         }
-      } catch (_) {}
+      } catch (_) {
+        // Dimensions can be unavailable during early world initialization.
+      }
     }
-    Debug.info("Manager", `Discovered ${this.devices.size} devices on load`);
+    Debug.info("Manager", `Discovered ${discovered} device entities on load`);
+    return discovered;
   }
 
-  /**
-   * Get count of active (non-idle, non-broken) devices.
-   */
+  _isValid(entity) {
+    try {
+      return typeof entity.isValid === "function" ? entity.isValid() : entity.isValid === true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   get activeCount() {
     let count = 0;
-    for (const [_, device] of this.devices) {
-      if (!device.stateMachine.is(DeviceState.IDLE, DeviceState.BROKEN, DeviceState.RELEASED)) {
-        count++;
-      }
+    for (const device of this.devices.values()) {
+      if (ACTIVE_STATES.has(device.stateMachine.state)) count++;
     }
     return count;
   }
@@ -191,5 +182,4 @@ class DeviceManager {
   }
 }
 
-// Singleton
 export const deviceManager = new DeviceManager();

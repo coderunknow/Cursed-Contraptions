@@ -1,55 +1,84 @@
 /**
  * Cursed Contraptions — Persistence Utilities
- * 
- * Handles reading/writing device state to entity dynamic properties
- * so state survives chunk unload/reload and server restarts.
+ *
+ * Gameplay state is stored as entity dynamic properties. Legacy entity
+ * properties remain readable as migration fallbacks for existing worlds.
  */
 
-import { Entity } from "@minecraft/server";
+const DYNAMIC_PREFIX = "cc:device_";
+const LEGACY_ENTITY_PROPERTIES = Object.freeze({
+  state: "cc:state",
+  durability: "cc:durability",
+  armor_count: "cc:armor_count",
+});
 
-const PROP_PREFIX = "cc:";
+function readDynamic(entity, key) {
+  try {
+    return entity.getDynamicProperty(`${DYNAMIC_PREFIX}${key}`);
+  } catch (_) {
+    return undefined;
+  }
+}
+
+function readLegacy(entity, key) {
+  const propertyId = LEGACY_ENTITY_PROPERTIES[key];
+  if (!propertyId) return undefined;
+
+  try {
+    return entity.getProperty(propertyId);
+  } catch (_) {
+    return undefined;
+  }
+}
+
+function readValue(entity, key) {
+  const value = readDynamic(entity, key);
+  return value === undefined || value === null ? readLegacy(entity, key) : value;
+}
+
+function writeValue(entity, key, value) {
+  try {
+    entity.setDynamicProperty(`${DYNAMIC_PREFIX}${key}`, value);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
 
 export function setStringProp(entity, key, value) {
-  try {
-    entity.setProperty(`${PROP_PREFIX}${key}`, String(value));
-  } catch (_) {}
+  return writeValue(entity, key, String(value));
 }
 
 export function getStringProp(entity, key, defaultValue = "") {
-  try {
-    const v = entity.getProperty(`${PROP_PREFIX}${key}`);
-    return v !== undefined && v !== null ? String(v) : defaultValue;
-  } catch (_) {
-    return defaultValue;
-  }
+  const value = readValue(entity, key);
+  return value === undefined || value === null ? defaultValue : String(value);
 }
 
 export function setIntProp(entity, key, value) {
-  try {
-    entity.setProperty(`${PROP_PREFIX}${key}`, Math.floor(value));
-  } catch (_) {}
+  const number = Number(value);
+  if (!Number.isFinite(number)) return false;
+  return writeValue(entity, key, Math.floor(number));
 }
 
 export function getIntProp(entity, key, defaultValue = 0) {
-  try {
-    const v = entity.getProperty(`${PROP_PREFIX}${key}`);
-    return v !== undefined && v !== null ? Math.floor(v) : defaultValue;
-  } catch (_) {
-    return defaultValue;
-  }
+  const number = Number(readValue(entity, key));
+  return Number.isFinite(number) ? Math.floor(number) : defaultValue;
 }
 
 export function setBoolProp(entity, key, value) {
-  try {
-    entity.setProperty(`${PROP_PREFIX}${key}`, value ? 1 : 0);
-  } catch (_) {}
+  return writeValue(entity, key, Boolean(value));
 }
 
 export function getBoolProp(entity, key, defaultValue = false) {
+  const value = readValue(entity, key);
+  return typeof value === "boolean" ? value : defaultValue;
+}
+
+export function clearProp(entity, key) {
   try {
-    const v = entity.getProperty(`${PROP_PREFIX}${key}`);
-    return v !== undefined && v !== null ? v === 1 : defaultValue;
+    entity.setDynamicProperty(`${DYNAMIC_PREFIX}${key}`, undefined);
+    return true;
   } catch (_) {
-    return defaultValue;
+    return false;
   }
 }

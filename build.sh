@@ -1,53 +1,31 @@
-#!/bin/bash
-#
-# Cursed Contraptions — Build Script
-# Packages the add-on into a distributable .mcaddon file.
-#
+#!/usr/bin/env bash
+# Validate both packs and package them as importable .mcpack files in a .mcaddon.
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+OUTPUT="$SCRIPT_DIR/Cursed-Contraptions.mcaddon"
+TEMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEMP_DIR"' EXIT
 
-echo "=== Cursed Contraptions Build ==="
+printf '%s\n' "=== Cursed Contraptions v0.1.0 Build ==="
+python3 "$SCRIPT_DIR/tests/validate_build.py"
 
-# Run validation first
-echo "Running validation..."
-python3 tests/validate_build.py
+printf '\n%s\n' "Packaging behavior and resource packs..."
+(
+  cd "$SCRIPT_DIR/behavior_pack"
+  zip -X -q -r "$TEMP_DIR/Cursed-Contraptions_BP.mcpack" . -x '*.DS_Store' '__pycache__/*'
+)
+(
+  cd "$SCRIPT_DIR/resource_pack"
+  zip -X -q -r "$TEMP_DIR/Cursed-Contraptions_RP.mcpack" . -x '*.DS_Store' '__pycache__/*'
+)
 
-if [ $? -ne 0 ]; then
-    echo "❌ Validation failed. Fix errors before building."
-    exit 1
-fi
+rm -f "$OUTPUT"
+(
+  cd "$TEMP_DIR"
+  zip -X -q "$OUTPUT" Cursed-Contraptions_BP.mcpack Cursed-Contraptions_RP.mcpack
+)
 
-echo ""
-echo "Packaging add-on..."
-
-# Clean previous build
-rm -f Cursed-Contraptions.mcaddon
-rm -f behavior_pack.zip resource_pack.zip
-
-# Package behavior pack
-cd behavior_pack
-zip -rq ../behavior_pack.zip . -x "*.DS_Store" -x "__pycache__/*"
-cd ..
-
-# Package resource pack
-cd resource_pack
-zip -rq ../resource_pack.zip . -x "*.DS_Store" -x "__pycache__/*"
-cd ..
-
-# Combine into .mcaddon
-zip -q Cursed-Contraptions.mcaddon behavior_pack.zip resource_pack.zip
-
-# Clean up intermediate files
-rm -f behavior_pack.zip resource_pack.zip
-
-SIZE=$(ls -lh Cursed-Contraptions.mcaddon | awk '{print $5}')
-
-echo ""
-echo "✅ Build complete!"
-echo "   File: Cursed-Contraptions.mcaddon"
-echo "   Size: $SIZE"
-echo ""
-echo "Install by double-clicking the .mcaddon file or dragging it into Minecraft."
+python3 "$SCRIPT_DIR/tests/validate_build.py" --package "$OUTPUT"
+printf '\n%s\n' "Build complete: $OUTPUT ($(du -h "$OUTPUT" | cut -f1))"

@@ -4,31 +4,51 @@
     "name": "Cursed Contraptions",
     "description": "Medieval torture contraptions for chaotic multiplayer fun. Place, trap, rescue, survive.",
     "uuid": "26b58248-ba91-5920-9e30-ccd557f70e96",
-    "version": [1, 0, 0],
-    "min_engine_version": [1, 21, 0]
+    "version": [
+      0,
+      1,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      21,
+      60
+    ]
   },
   "modules": [
     {
       "type": "data",
       "uuid": "5a15b906-9ac3-5055-a4fa-3f5b9c276679",
-      "version": [1, 0, 0]
+      "version": [
+        0,
+        1,
+        0
+      ]
     },
     {
       "type": "script",
       "language": "javascript",
       "uuid": "b4c382e3-0372-587a-affe-ad5df19c13f7",
-      "version": [1, 0, 0],
+      "version": [
+        0,
+        1,
+        0
+      ],
       "entry": "scripts/main.js"
     }
   ],
   "dependencies": [
     {
       "module_name": "@minecraft/server",
-      "version": "2.0.0-beta"
+      "version": "1.17.0"
     },
     {
       "uuid": "5e3f8acc-8654-545a-a5b0-cbf1f736a00e",
-      "version": [1, 0, 0]
+      "version": [
+        0,
+        1,
+        0
+      ]
     }
   ]
 }
