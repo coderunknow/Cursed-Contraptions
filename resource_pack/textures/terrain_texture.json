@@ -3,19 +3,19 @@
   "texture_name": "atlas.terrain",
   "texture_data": {
     "cc_iron_maiden_side": {
-      "textures": "textures/blocks/iron_maiden_side"
+      "textures": "textures/blocks/iron_maiden_side.png"
     },
     "cc_cursed_stocks_side": {
-      "textures": "textures/blocks/cursed_stocks_side"
+      "textures": "textures/blocks/cursed_stocks_side.png"
     },
     "cc_gravebinder_cage_side": {
-      "textures": "textures/blocks/gravebinder_cage_side"
+      "textures": "textures/blocks/gravebinder_cage_side.png"
     },
     "cc_regret_rack_side": {
-      "textures": "textures/blocks/regret_rack_side"
+      "textures": "textures/blocks/regret_rack_side.png"
     },
     "cc_black_reliquary_side": {
-      "textures": "textures/blocks/black_reliquary_side"
+      "textures": "textures/blocks/black_reliquary_side.png"
     }
   }
 }

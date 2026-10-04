@@ -14,16 +14,24 @@
       },
       "animations": {
         "idle": "animation.cc_iron_maiden.idle",
-        "open": "animation.cc_iron_maiden.open",
+        "detect": "animation.cc_iron_maiden.detect",
         "close": "animation.cc_iron_maiden.close",
+        "closed": "animation.cc_iron_maiden.closed",
         "torture": "animation.cc_iron_maiden.torture",
+        "strain": "animation.cc_iron_maiden.strain",
+        "open": "animation.cc_iron_maiden.open",
+        "released": "animation.cc_iron_maiden.released",
         "broken": "animation.cc_iron_maiden.broken",
         "controller": "controller.animation.cc_iron_maiden.state"
       },
       "scripts": {
-        "animate": ["controller"]
+        "animate": [
+          "controller"
+        ]
       },
-      "render_controllers": ["controller.render.default"]
+      "render_controllers": [
+        "controller.render.default"
+      ]
     }
   }
 }

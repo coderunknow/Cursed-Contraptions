@@ -101,3 +101,29 @@ Known limitations of the checks:
    Bedrock 26.2 clients in a copied hosted multiplayer/Realm world after the
    owner enables both packs. Confirm a rejoin preserves/reconciles the device.
    Do not treat the mocked suite or a single-player test as Realm verification.
+
+## 5. v0.1.3 spot-checks (reported defects)
+
+These target the three defects reported against v0.1.2. Run them before treating
+the v0.1.3 fixes as verified.
+
+1. **Visible placement.** Place each of the five devices on solid ground and in
+   mid-air against a wall, at chunk borders, and after a fresh world load. Every
+   placement must leave a visible device: no invisible obstacle, no floating
+   anchor cube left behind, and no missing-texture checkerboard on the item icon
+   in the hotbar or creative inventory.
+2. **Mob containment.** Cage a zombie, a skeleton, a cow, and a villager in turn.
+   Each captive should stay inside the frame, occasionally struggle (strain
+   animation plus a dust puff), and never judder, teleport in place, or clip
+   through the device. Confirm the captive cannot be pushed out by other mobs or
+   by flowing water.
+3. **Rescue while occupied.** With a device holding a player, aim at the frame
+   from outside and confirm the **Use / Rescue** action still appears and frees
+   the captive. This was unreachable in the previous build.
+4. **Animation coverage.** Watch a full cycle on each device and confirm the
+   detect, close, closed-idle, torture, strain, open, released, and broken
+   animations all play, and that doors/bars/wheels return to their rest pose
+   when the device goes idle.
+5. **Feedback.** Hit a device and confirm sparks and (when occupied) a flinch.
+   Reinforce one with armor and confirm the burst and message. Break one and
+   confirm the release animation, the freed captive, and exactly one item drop.

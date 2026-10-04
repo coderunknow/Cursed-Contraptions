@@ -5,45 +5,276 @@
       "initial_state": "idle",
       "states": {
         "idle": {
-          "animations": ["idle"],
+          "animations": [
+            "idle"
+          ],
           "transitions": [
-            { "capturing": "query.has_tag('cc:anim_capturing')" },
-            { "closed": "query.has_tag('cc:anim_closed')" },
-            { "torturing": "query.has_tag('cc:anim_torturing')" },
-            { "opening": "query.has_tag('cc:anim_opening')" },
-            { "broken": "query.has_tag('cc:anim_broken')" }
+            {
+              "detecting": "q.has_tag('cc:anim_detecting')"
+            },
+            {
+              "capturing": "q.has_tag('cc:anim_capturing')"
+            },
+            {
+              "closed": "q.has_tag('cc:anim_closed')"
+            },
+            {
+              "torturing": "q.has_tag('cc:anim_torturing')"
+            },
+            {
+              "opening": "q.has_tag('cc:anim_opening')"
+            },
+            {
+              "released": "q.has_tag('cc:anim_released')"
+            },
+            {
+              "broken": "q.has_tag('cc:anim_broken')"
+            }
+          ]
+        },
+        "detecting": {
+          "animations": [
+            "detect"
+          ],
+          "transitions": [
+            {
+              "idle": "q.has_tag('cc:anim_idle')"
+            },
+            {
+              "capturing": "q.has_tag('cc:anim_capturing')"
+            },
+            {
+              "closed": "q.has_tag('cc:anim_closed')"
+            },
+            {
+              "torturing": "q.has_tag('cc:anim_torturing')"
+            },
+            {
+              "opening": "q.has_tag('cc:anim_opening')"
+            },
+            {
+              "released": "q.has_tag('cc:anim_released')"
+            },
+            {
+              "broken": "q.has_tag('cc:anim_broken')"
+            }
           ]
         },
         "capturing": {
-          "animations": ["lock"],
+          "animations": [
+            "close"
+          ],
           "transitions": [
-            { "closed": "query.has_tag('cc:anim_closed')" },
-            { "opening": "query.has_tag('cc:anim_opening')" },
-            { "broken": "query.has_tag('cc:anim_broken')" }
+            {
+              "idle": "q.has_tag('cc:anim_idle')"
+            },
+            {
+              "detecting": "q.has_tag('cc:anim_detecting')"
+            },
+            {
+              "closed": "q.has_tag('cc:anim_closed')"
+            },
+            {
+              "torturing": "q.has_tag('cc:anim_torturing')"
+            },
+            {
+              "opening": "q.has_tag('cc:anim_opening')"
+            },
+            {
+              "released": "q.has_tag('cc:anim_released')"
+            },
+            {
+              "broken": "q.has_tag('cc:anim_broken')"
+            }
           ]
         },
         "closed": {
+          "animations": [
+            "closed"
+          ],
           "transitions": [
-            { "torturing": "query.has_tag('cc:anim_torturing')" },
-            { "opening": "query.has_tag('cc:anim_opening')" },
-            { "broken": "query.has_tag('cc:anim_broken')" }
+            {
+              "closed_strain": "q.has_tag('cc:anim_strain')"
+            },
+            {
+              "idle": "q.has_tag('cc:anim_idle')"
+            },
+            {
+              "detecting": "q.has_tag('cc:anim_detecting')"
+            },
+            {
+              "capturing": "q.has_tag('cc:anim_capturing')"
+            },
+            {
+              "torturing": "q.has_tag('cc:anim_torturing')"
+            },
+            {
+              "opening": "q.has_tag('cc:anim_opening')"
+            },
+            {
+              "released": "q.has_tag('cc:anim_released')"
+            },
+            {
+              "broken": "q.has_tag('cc:anim_broken')"
+            }
           ]
         },
         "torturing": {
-          "animations": ["shake"],
+          "animations": [
+            "torture"
+          ],
           "transitions": [
-            { "opening": "query.has_tag('cc:anim_opening')" },
-            { "broken": "query.has_tag('cc:anim_broken')" }
+            {
+              "torture_strain": "q.has_tag('cc:anim_strain')"
+            },
+            {
+              "idle": "q.has_tag('cc:anim_idle')"
+            },
+            {
+              "detecting": "q.has_tag('cc:anim_detecting')"
+            },
+            {
+              "capturing": "q.has_tag('cc:anim_capturing')"
+            },
+            {
+              "closed": "q.has_tag('cc:anim_closed')"
+            },
+            {
+              "opening": "q.has_tag('cc:anim_opening')"
+            },
+            {
+              "released": "q.has_tag('cc:anim_released')"
+            },
+            {
+              "broken": "q.has_tag('cc:anim_broken')"
+            }
           ]
         },
         "opening": {
+          "animations": [
+            "open"
+          ],
           "transitions": [
-            { "idle": "query.has_tag('cc:anim_idle')" },
-            { "broken": "query.has_tag('cc:anim_broken')" }
+            {
+              "idle": "q.has_tag('cc:anim_idle')"
+            },
+            {
+              "detecting": "q.has_tag('cc:anim_detecting')"
+            },
+            {
+              "capturing": "q.has_tag('cc:anim_capturing')"
+            },
+            {
+              "closed": "q.has_tag('cc:anim_closed')"
+            },
+            {
+              "torturing": "q.has_tag('cc:anim_torturing')"
+            },
+            {
+              "released": "q.has_tag('cc:anim_released')"
+            },
+            {
+              "broken": "q.has_tag('cc:anim_broken')"
+            }
+          ]
+        },
+        "released": {
+          "animations": [
+            "released"
+          ],
+          "transitions": [
+            {
+              "idle": "q.has_tag('cc:anim_idle')"
+            },
+            {
+              "detecting": "q.has_tag('cc:anim_detecting')"
+            },
+            {
+              "capturing": "q.has_tag('cc:anim_capturing')"
+            },
+            {
+              "closed": "q.has_tag('cc:anim_closed')"
+            },
+            {
+              "torturing": "q.has_tag('cc:anim_torturing')"
+            },
+            {
+              "opening": "q.has_tag('cc:anim_opening')"
+            },
+            {
+              "broken": "q.has_tag('cc:anim_broken')"
+            }
           ]
         },
         "broken": {
-          "animations": ["broken"]
+          "animations": [
+            "broken"
+          ],
+          "transitions": []
+        },
+        "closed_strain": {
+          "animations": [
+            "strain"
+          ],
+          "blend_transition": 0.1,
+          "transitions": [
+            {
+              "closed": "!q.has_tag('cc:anim_strain') || q.anim_time > 0.6"
+            },
+            {
+              "detecting": "q.has_tag('cc:anim_detecting')"
+            },
+            {
+              "capturing": "q.has_tag('cc:anim_capturing')"
+            },
+            {
+              "torturing": "q.has_tag('cc:anim_torturing')"
+            },
+            {
+              "opening": "q.has_tag('cc:anim_opening')"
+            },
+            {
+              "released": "q.has_tag('cc:anim_released')"
+            },
+            {
+              "broken": "q.has_tag('cc:anim_broken')"
+            },
+            {
+              "idle": "q.has_tag('cc:anim_idle')"
+            }
+          ]
+        },
+        "torture_strain": {
+          "animations": [
+            "strain"
+          ],
+          "blend_transition": 0.1,
+          "transitions": [
+            {
+              "torturing": "!q.has_tag('cc:anim_strain') || q.anim_time > 0.6"
+            },
+            {
+              "detecting": "q.has_tag('cc:anim_detecting')"
+            },
+            {
+              "capturing": "q.has_tag('cc:anim_capturing')"
+            },
+            {
+              "closed": "q.has_tag('cc:anim_closed')"
+            },
+            {
+              "opening": "q.has_tag('cc:anim_opening')"
+            },
+            {
+              "released": "q.has_tag('cc:anim_released')"
+            },
+            {
+              "broken": "q.has_tag('cc:anim_broken')"
+            },
+            {
+              "idle": "q.has_tag('cc:anim_idle')"
+            }
+          ]
         }
       }
     }

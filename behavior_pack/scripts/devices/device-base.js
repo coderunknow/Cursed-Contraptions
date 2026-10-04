@@ -27,7 +27,37 @@ import { CONFIG } from "../config.js";
 const TRAPPED_TAG = "cc:trapped";
 const CAPTURE_RESERVED_TAG = "cc:capture_reserved";
 const MOVEMENT_SAVED_PROPERTY = "cc:movement_was_enabled";
+const STRAIN_TAG = "cc:anim_strain";
 const ANIMATION_STATES = Object.values(DeviceState);
+
+/**
+ * Entity events. The behavior-pack entity declaration turns these into
+ * component-group swaps:
+ *
+ * - ``cc:seat_victim`` / ``cc:clear_victim`` shrink the device's own hitbox so
+ *   the captive inside it stays clickable.
+ * - ``cc:seat`` / ``cc:unseat`` (mobs only) zero the movement component and
+ *   stop pathing, which replaces the old tug-of-war containment.
+ */
+const DEVICE_SEAT_EVENT = "cc:seat_victim";
+const DEVICE_CLEAR_EVENT = "cc:clear_victim";
+/**
+ * Mob containment uses effects rather than entity events: component groups can
+ * only be declared for entities the pack defines, and the captives are vanilla
+ * mobs. Slowness VII pins their movement multiplier at zero and Blindness stops
+ * them targeting anything, which is what keeps a caged zombie from clawing at
+ * whoever walks past.
+ */
+const MOB_FREEZE_EFFECT = "slowness";
+const MOB_BLIND_EFFECT = "blindness";
+
+// States in which a device holds a captive.
+const OCCUPIED_STATES = [
+  DeviceState.CAPTURING,
+  DeviceState.CLOSED,
+  DeviceState.TORTURING,
+];
+
 const DEVICE_NAMES = Object.freeze({
   "cc:iron_maiden": "Iron Maiden",
   "cc:cursed_stocks": "Cursed Stocks",
@@ -46,11 +76,13 @@ export class TortureDevice {
     this.victimId = null;
     this._victimEntity = null;
     this._victimMovementWasEnabled = null;
+    this._victimSeated = false;
     this._pendingTargetId = null;
     this._pendingTarget = null;
     this._captureTimer = null;
     this._tortureTimer = null;
     this._redstoneTimer = null;
+    this._strainTimer = null;
     this._timers = new Set();
     this._redstonePowered = false;
     this._redstoneActivationPending = false;
@@ -60,6 +92,9 @@ export class TortureDevice {
     this._interactionFeedbackTicks = new Map();
     this._lastPosition = null;
     this._lastDimension = null;
+    this._lastCorrectionTick = -Infinity;
+    this._lastSeatRefreshTick = -Infinity;
+    this._nextStruggleTick = null;
 
     this._loadState();
     this._recoverState();
@@ -67,6 +102,7 @@ export class TortureDevice {
     this._resumeRecoveredState();
   }
 
+  // ------------------------------------------------------------------ state --
   get position() {
     try {
       const location = this.entity.location;
@@ -108,6 +144,19 @@ export class TortureDevice {
     const normalized = Math.max(0, Math.min(this.config.armorSlots, Math.floor(number)));
     setIntProp(this.entity, "armor_count", normalized);
     this._setEntityProperty("cc:armor_count", normalized);
+  }
+
+  /** True while the device is holding a captive. */
+  get isOccupied() {
+    return this.stateMachine.is(...OCCUPIED_STATES);
+  }
+
+  /** Human-readable one-line status used by admin commands and feedback. */
+  get statusLine() {
+    const armor = this.config.armorSlots > 0
+      ? `, reinforced ${this.armorCount}/${this.config.armorSlots}`
+      : "";
+    return `${this.stateMachine.state} — Durability: ${this.durability}/${this.maxDurability}${armor}`;
   }
 
   _setEntityProperty(identifier, value) {
@@ -157,11 +206,7 @@ export class TortureDevice {
       return;
     }
 
-    if (this.stateMachine.is(
-      DeviceState.CAPTURING,
-      DeviceState.CLOSED,
-      DeviceState.TORTURING,
-    )) {
+    if (this.stateMachine.is(...OCCUPIED_STATES)) {
       const victim = this._getVictim();
       if (victim && this._hasTag(victim, TRAPPED_TAG)) {
         this._victimEntity = victim;
@@ -191,7 +236,7 @@ export class TortureDevice {
     }
 
     if (this.stateMachine.state !== DeviceState.TORTURING || !this._victimEntity) return;
-    this._lockVictimMovement(this._victimEntity);
+    this._seatVictim(this._victimEntity);
     this._setAnimationState("torturing");
     this._applyDebuff(this._victimEntity);
     this._startTortureCycle();
@@ -233,6 +278,7 @@ export class TortureDevice {
     }
   }
 
+  // ------------------------------------------------------------------- tick --
   tick(canActivate = this._canActivate, checkForTargets = true) {
     if (this._disposed || !this._entityValid()) return;
     this._canActivate = Boolean(canActivate);
@@ -277,12 +323,17 @@ export class TortureDevice {
       }
     }
 
+    let closest = null;
+    let closestDistance = Infinity;
     for (const target of targets) {
-      if (this._isCapturable(target)) {
-        this._beginCapture(target);
-        return;
+      if (!this._isCapturable(target)) continue;
+      const distance = this._distanceSquared(target.location, position);
+      if (distance < closestDistance) {
+        closest = target;
+        closestDistance = distance;
       }
     }
+    if (closest) this._beginCapture(closest);
   }
 
   _isCapturable(entity) {
@@ -308,6 +359,7 @@ export class TortureDevice {
     }
   }
 
+  // ---------------------------------------------------------------- capture --
   _beginCapture(target) {
     if (!this._canActivate || !this.stateMachine.transition(DeviceState.DETECTING)) return;
 
@@ -319,6 +371,7 @@ export class TortureDevice {
     setStringProp(this.entity, "pending_victim_id", this._pendingTargetId);
     this._saveState();
     this._setAnimationState("detecting");
+    this._spawnBurst(CONFIG.particles.captureBurstCount);
     Debug.info(this.typeId, `Detected ${target.typeId}; starting capture sequence`);
 
     this._captureTimer = this._scheduleTimeout(() => {
@@ -386,13 +439,15 @@ export class TortureDevice {
     setStringProp(this.entity, "victim_id", this.victimId);
     try {
       target.addTag(TRAPPED_TAG);
+      target.removeTag(CAPTURE_RESERVED_TAG);
     } catch (_) {}
 
+    this._seatVictim(target);
     this._teleportToDevice(target);
-    this._lockVictimMovement(target);
     this._applyDebuff(target);
     this._saveState();
     this._setAnimationState("capturing");
+    this._spawnBurst(CONFIG.particles.captureBurstCount);
     this._notifyVictim(target, `You are trapped in the ${this._displayName()}. A teammate can interact with it to free you.`);
     Debug.info(this.typeId, `Captured entity ${this.victimId}`);
 
@@ -444,6 +499,7 @@ export class TortureDevice {
 
   _onClosed() {
     this._setAnimationState("closed");
+    this._spawnBurst(CONFIG.particles.captureBurstCount);
     this._scheduleTimeout(() => {
       if (this.stateMachine.state === DeviceState.CLOSED) {
         this.stateMachine.transition(DeviceState.TORTURING);
@@ -457,6 +513,7 @@ export class TortureDevice {
     this._startTortureCycle();
   }
 
+  // --------------------------------------------------------------- torture --
   _startTortureCycle() {
     this._clearTimer(this._tortureTimer);
     this._tortureTimer = null;
@@ -497,6 +554,7 @@ export class TortureDevice {
     this._spawnParticles(isExtreme ? "extreme" : "normal");
     if (damage > 0) applyDamage(victim, damage, EntityDamageCause.contact);
     this._applyDebuff(victim);
+    this._triggerStruggle(8);
     this.durability = this.durability - 1;
 
     if (this.durability <= 0) {
@@ -508,6 +566,20 @@ export class TortureDevice {
     this._scheduleNextDamage();
   }
 
+  // ----------------------------------------------------------- containment --
+  /**
+   * Keep the captive where the contraption can be seen holding them.
+   *
+   * v0.1.2 teleported the victim whenever they were more than half a block from
+   * the device, which fought the mob's own AI every tick and looked like
+   * stuttering. Captives are now *seated* instead:
+   *
+   * - players keep their movement input locked (and are only pulled back if
+   *   knockback or water carries them well clear),
+   * - mobs have movement and pathing disabled through the ``cc:seat`` entity
+   *   event, so they simply stay put and the device animation carries the
+   *   "they are struggling" read.
+   */
   _containVictim() {
     const victim = this._getVictim();
     if (!victim || !this._hasTag(victim, TRAPPED_TAG)) {
@@ -521,13 +593,161 @@ export class TortureDevice {
       return;
     }
 
-    if (this._distanceSquared(victim.location, position) > 0.25) {
-      this._teleportToDevice(victim);
+    if (!this._victimSeated) this._seatVictim(victim);
+
+    const now = system.currentTick;
+    if (!Number.isFinite(now) || now - this._lastSeatRefreshTick >= CONFIG.containment.seatRefreshTicks) {
+      this._lastSeatRefreshTick = now;
+      this._refreshSeat(victim);
     }
+
+    const distance = Math.sqrt(this._distanceSquared(victim.location, position));
+    const isPlayer = victim.typeId === "minecraft:player";
+    const escapeLimit = isPlayer
+      ? CONFIG.containment.playerDriftLimit
+      : CONFIG.containment.mobEscapeLimit;
+
+    if (distance > escapeLimit) {
+      if (!Number.isFinite(now) || now - this._lastCorrectionTick >= CONFIG.containment.correctionCooldownTicks) {
+        this._lastCorrectionTick = now;
+        this._teleportToDevice(victim);
+        this._triggerStruggle(CONFIG.struggle.strainDurationTicks);
+        Debug.info(this.typeId, `Captive drifted ${distance.toFixed(2)} blocks; reseated`);
+      }
+      return;
+    }
+
+    this._tickStruggle(distance);
+  }
+
+  /** Re-assert the hold: effect durations tick down and can be dispelled. */
+  _refreshSeat(victim) {
+    if (!isEntityValid(victim)) return;
+    if (victim.typeId === "minecraft:player") {
+      // Cheaper re-assert: the original value is already cached, so this is a
+      // single engine call and never overwrites the saved permission flag.
+      try {
+        victim.inputPermissions.setPermissionCategory(InputPermissionCategory.Movement, false);
+      } catch (_) {}
+      return;
+    }
+    this._freezeMob(victim);
+  }
+
+  /**
+   * Occasionally make the contraption rattle, so a seated (motionless) captive
+   * still reads as alive. The device animation carries the struggle.
+   */
+  _tickStruggle(distance = 0) {
+    if (!CONFIG.struggle.enabled || this._disposed) return;
+    const now = system.currentTick;
+    if (!Number.isFinite(now)) return;
+
+    if (this._nextStruggleTick === null) {
+      this._nextStruggleTick = now + this._randomStruggleDelay();
+      return;
+    }
+    if (now < this._nextStruggleTick) return;
+
+    this._nextStruggleTick = now + this._randomStruggleDelay();
+    // A captive pressed against the frame struggles more often.
+    const forced = distance > CONFIG.containment.mobDriftLimit;
+    this._triggerStruggle(CONFIG.struggle.strainDurationTicks, forced);
+  }
+
+  _randomStruggleDelay() {
+    const span = Math.max(1, CONFIG.struggle.maxIntervalTicks - CONFIG.struggle.minIntervalTicks);
+    return CONFIG.struggle.minIntervalTicks + Math.floor(Math.random() * span);
+  }
+
+  /** Play the device's one-shot strain overlay. */
+  _triggerStruggle(ticks = CONFIG.struggle.strainDurationTicks, force = false) {
+    if (!CONFIG.struggle.enabled || this._disposed || !this._entityValid()) return;
+    if (!this.isOccupied) return;
+
+    const now = system.currentTick;
+    if (!force && Number.isFinite(now) && this._strainUntilTick && now < this._strainUntilTick) {
+      return;
+    }
+
+    const duration = Math.max(1, Math.ceil(ticks));
+    this._strainUntilTick = Number.isFinite(now) ? now + duration : null;
+    try {
+      this.entity.addTag(STRAIN_TAG);
+    } catch (_) {
+      return;
+    }
+
+    this._clearTimer(this._strainTimer);
+    this._strainTimer = this._scheduleTimeout(() => {
+      this._strainTimer = null;
+      this._clearStrain();
+    }, duration);
+
+    // A puff of dust at the captive so the rattle reads as them moving.
+    const victim = this._getVictim(true);
+    if (victim) {
+      const dimension = this._lastDimension;
+      try {
+        dimension?.spawnParticle("minecraft:basic_smoke_particle", {
+          x: victim.location.x,
+          y: victim.location.y + 0.6,
+          z: victim.location.z,
+        });
+      } catch (_) {}
+    }
+  }
+
+  _clearStrain() {
+    if (!this._entityValid()) return;
+    try { this.entity.removeTag(STRAIN_TAG); } catch (_) {}
+    this._strainUntilTick = null;
+  }
+
+  _seatVictim(victim) {
+    if (!isEntityValid(victim)) return;
+    this._victimSeated = true;
 
     if (victim.typeId === "minecraft:player") {
       this._lockVictimMovement(victim);
+    } else {
+      this._freezeMob(victim);
     }
+
+    try { this.entity.triggerEvent(DEVICE_SEAT_EVENT); } catch (_) {}
+  }
+
+  _unseatVictim(victim) {
+    this._victimSeated = false;
+    this._clearStrain();
+    this._nextStruggleTick = null;
+
+    if (isEntityValid(victim)) {
+      if (victim.typeId === "minecraft:player") {
+        this._restoreVictimMovement(victim);
+      } else {
+        try { victim.removeEffect(MOB_FREEZE_EFFECT); } catch (_) {}
+        try { victim.removeEffect(MOB_BLIND_EFFECT); } catch (_) {}
+      }
+    }
+
+    try { this.entity.triggerEvent(DEVICE_CLEAR_EVENT); } catch (_) {}
+  }
+
+  _freezeMob(victim) {
+    if (!isEntityValid(victim) || victim.typeId === "minecraft:player") return;
+    try {
+      victim.addEffect(MOB_FREEZE_EFFECT, CONFIG.containment.mobFreezeDurationTicks, {
+        amplifier: CONFIG.containment.mobFreezeAmplifier,
+        showParticles: false,
+      });
+    } catch (_) {}
+    try {
+      victim.addEffect(MOB_BLIND_EFFECT, CONFIG.containment.mobFreezeDurationTicks, {
+        amplifier: 0,
+        showParticles: false,
+      });
+    } catch (_) {}
   }
 
   _onOpening() {
@@ -536,6 +756,7 @@ export class TortureDevice {
     this._clearTimer(this._tortureTimer);
     this._tortureTimer = null;
     this._setAnimationState("opening");
+    this._spawnBurst(Math.max(2, Math.floor(CONFIG.particles.captureBurstCount / 2)));
 
     this._scheduleTimeout(() => {
       if (this.stateMachine.state === DeviceState.OPENING) {
@@ -609,18 +830,17 @@ export class TortureDevice {
     for (const candidate of candidates) {
       if (!isEntityValid(candidate) || String(candidate.id) !== String(this.victimId)) continue;
       if (!includeOutOfRange) {
+        // A captive that has genuinely left the device (teleport, portal, far
+        // knockback) is released; the leash is far wider than the old
+        // half-block containment window, so ordinary drift is never a release,
+        // but a captive who gets 16 blocks clear has earned their freedom.
         if (!this._sameDimension(candidate)) continue;
-        if (!this._isNearDevice(candidate, CONFIG.performance.entityScanRadius)) continue;
+        if (!this._isNearDevice(candidate, CONFIG.containment.leashRadius)) continue;
       }
       this._victimEntity = candidate;
       return candidate;
     }
 
-    // Direct identifier lookups above are authoritative: world.getEntity and
-    // Dimension.getEntities read from the same loaded-entity registry, and
-    // the same dimension/distance rules already ran for every candidate, so
-    // a tag-scoped proximity scan cannot find a victim the id lookups
-    // rejected (v0.1.1 audit finding F5).
     return null;
   }
 
@@ -629,11 +849,13 @@ export class TortureDevice {
     if (victim) {
       try { victim.removeTag(TRAPPED_TAG); } catch (_) {}
       try { victim.removeTag(CAPTURE_RESERVED_TAG); } catch (_) {}
-      this._restoreVictimMovement(victim);
+      this._unseatVictim(victim);
       if (this._sameDimension(victim)
-        && this._isNearDevice(victim, CONFIG.performance.entityScanRadius)) {
+        && this._isNearDevice(victim, 2)) {
         this._teleportAway(victim);
       }
+    } else {
+      this._unseatVictim(null);
     }
 
     this.victimId = null;
@@ -680,6 +902,24 @@ export class TortureDevice {
     } catch (_) {}
   }
 
+  _spawnBurst(count) {
+    if (!CONFIG.particles.impactEnabled || !this._entityValid()) return;
+    const position = this.position;
+    const dimension = this._lastDimension;
+    if (!position || !dimension) return;
+
+    const limit = Math.min(Math.max(0, Math.ceil(count)), CONFIG.performance.maxParticlesPerEvent);
+    try {
+      for (let index = 0; index < limit; index++) {
+        dimension.spawnParticle("minecraft:basic_smoke_particle", {
+          x: position.x + (Math.random() - 0.5) * 0.9,
+          y: position.y + 0.3 + Math.random() * 1.4,
+          z: position.z + (Math.random() - 0.5) * 0.9,
+        });
+      }
+    } catch (_) {}
+  }
+
   _spawnParticles(type) {
     if (!this._entityValid()) return;
     const position = this.position;
@@ -720,6 +960,7 @@ export class TortureDevice {
 
   _setAnimationState(stateName) {
     if (!this._entityValid()) return;
+    this._clearStrain();
     try {
       for (const state of ANIMATION_STATES) {
         this.entity.removeTag(`cc:anim_${state}`);
@@ -728,6 +969,7 @@ export class TortureDevice {
     } catch (_) {}
   }
 
+  // -------------------------------------------------------------- redstone --
   onRedstonePower(powered) {
     if (this._disposed || !this._entityValid()) return;
     const signal = Boolean(powered);
@@ -751,12 +993,14 @@ export class TortureDevice {
     }, this.config.redstoneActivationDelay);
   }
 
+  // ----------------------------------------------------------- interaction --
   onInteract(player, heldItem) {
     if (this._disposed || !isEntityValid(player) || this.stateMachine.is(DeviceState.BROKEN)) return false;
 
-    if (this.stateMachine.is(DeviceState.CAPTURING, DeviceState.CLOSED, DeviceState.TORTURING)) {
+    if (this.isOccupied) {
       if (String(player.id) === String(this.victimId)) {
         this._sendInteractionFeedback(player, "§eYou cannot free yourself. Ask another player to use the device.");
+        this._triggerStruggle(CONFIG.struggle.strainDurationTicks, true);
         return false;
       }
       if (!this.release()) return false;
@@ -767,30 +1011,53 @@ export class TortureDevice {
     }
 
     if (heldItem && this._isArmorItem(heldItem.typeId)) {
-      if (this.armorCount >= this.config.armorSlots) {
-        this._sendInteractionFeedback(player, "§eThis device cannot be reinforced any further.");
-        return false;
-      }
-      if (!this._consumeHeldItem(player, heldItem)) return false;
-
-      this.armorCount += 1;
-      this.durability += this.config.armorDurabilityBonus;
-      this._setAnimationState(this.stateMachine.state);
-      Debug.info(this.typeId, `Reinforced (${this.armorCount}/${this.config.armorSlots})`);
-      try { player.sendMessage(`§aReinforced ${this._displayName()} (${this.armorCount}/${this.config.armorSlots}).`); } catch (_) {}
-      return true;
+      return this._reinforce(player, heldItem);
     }
 
     if (this.stateMachine.is(DeviceState.IDLE, DeviceState.DETECTING)) {
       this._sendInteractionFeedback(
         player,
-        `§7${this._displayName()} activates automatically when a nearby player or mob enters range. Hold armor or an elytra to reinforce (${this.armorCount}/${this.config.armorSlots}).`,
+        `§7${this._displayName()} — ${this.statusLine}. It activates automatically when a player or mob comes within §f${this.config.captureRadius.toFixed(1)}§7 blocks. Hold armor or an elytra to reinforce it.`,
       );
       return true;
     }
 
     this._sendInteractionFeedback(player, `§7${this._displayName()} is busy. Try interacting again when it is ready.`);
     return false;
+  }
+
+  /**
+   * Armor reinforcement.
+   *
+   * The item is reserved before any state is written, and only removed once the
+   * reservation succeeded. v0.1.2 raised the reinforcement count first and
+   * consumed the item afterwards, so a failed consumption could grant a free
+   * upgrade — and a failed upgrade combined with a successful consumption could
+   * eat a piece of armor for nothing.
+   */
+  _reinforce(player, heldItem) {
+    if (this.armorCount >= this.config.armorSlots) {
+      this._sendInteractionFeedback(player, "§eThis device cannot be reinforced any further.");
+      return false;
+    }
+
+    if (!this._consumeHeldItem(player, heldItem)) {
+      this._sendInteractionFeedback(player, "§eHold the armor piece in your selected slot to reinforce this device.");
+      return false;
+    }
+
+    this.armorCount += 1;
+    this.durability = this.durability + this.config.armorDurabilityBonus;
+    this._setAnimationState(this.stateMachine.state);
+    this._spawnBurst(3);
+    Debug.info(this.typeId, `Reinforced (${this.armorCount}/${this.config.armorSlots})`);
+    try {
+      player.sendMessage(
+        `§aReinforced ${this._displayName()} (§f${this.armorCount}/${this.config.armorSlots}§a). `
+        + `Durability is now §f${this.durability}/${this.maxDurability}§a.`,
+      );
+    } catch (_) {}
+    return true;
   }
 
   _consumeHeldItem(player, heldItem) {
@@ -982,6 +1249,7 @@ export class TortureDevice {
     return dx * dx + dy * dy + dz * dz;
   }
 
+  // --------------------------------------------------------------- timers --
   _scheduleTimeout(callback, ticks) {
     const delay = Math.max(1, Math.ceil(Number(ticks) || 1));
     let handle;
@@ -1004,9 +1272,11 @@ export class TortureDevice {
     this._captureTimer = null;
     this._tortureTimer = null;
     this._redstoneTimer = null;
+    this._strainTimer = null;
     this._redstoneActivationPending = false;
   }
 
+  // -------------------------------------------------------------- recovery --
   onVictimUnavailable(victimId) {
     const id = String(victimId);
     if (String(this._pendingTargetId) === id && this.stateMachine.is(DeviceState.DETECTING)) {
@@ -1031,18 +1301,15 @@ export class TortureDevice {
       return true;
     }
 
-    if (String(this.victimId) !== id || !this.stateMachine.is(
-      DeviceState.CAPTURING,
-      DeviceState.CLOSED,
-      DeviceState.TORTURING,
-    )) return false;
+    if (String(this.victimId) !== id || !this.stateMachine.is(...OCCUPIED_STATES)) return false;
 
     this._victimEntity = entity;
     try { entity.addTag(TRAPPED_TAG); } catch (_) {}
-    this._lockVictimMovement(entity);
+    this._seatVictim(entity);
     return true;
   }
 
+  // ------------------------------------------------------------- lifecycle --
   release() {
     if (this._disposed) return false;
 
@@ -1052,11 +1319,7 @@ export class TortureDevice {
       return changed;
     }
 
-    if (!this.stateMachine.is(
-      DeviceState.CAPTURING,
-      DeviceState.CLOSED,
-      DeviceState.TORTURING,
-    )) return false;
+    if (!this.stateMachine.is(...OCCUPIED_STATES)) return false;
 
     const changed = this.stateMachine.transition(DeviceState.OPENING);
     if (changed) this._saveState();
@@ -1076,7 +1339,15 @@ export class TortureDevice {
     if (!Number.isFinite(damage) || damage <= 0) return false;
 
     this.durability = this.durability - Math.ceil(damage);
-    if (this.durability <= 0) this.break();
+    if (this.durability <= 0) {
+      this.break();
+      return true;
+    }
+
+    // Hitting the frame makes whoever is inside flinch; an empty device still
+    // throws sparks so the hit always reads.
+    if (this.isOccupied) this._triggerStruggle(CONFIG.struggle.strainDurationTicks, true);
+    else this._spawnBurst(2);
     return true;
   }
 

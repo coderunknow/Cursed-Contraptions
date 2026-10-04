@@ -56,47 +56,138 @@ subscribeSafely("initialization", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Placement
+// ---------------------------------------------------------------------------
+/**
+ * Turn a freshly placed anchor block into its device entity.
+ *
+ * v0.1.2 ran this conversion once, one tick after placement, and gave up
+ * silently whenever ``dimension.getBlock`` returned nothing (unloaded chunk at
+ * the placement site) or the block no longer matched the placed type. That is
+ * exactly the reported "I place it, but it is invisible/manages nothing"
+ * symptom: the item was consumed, the anchor block was removed, and no entity
+ * was ever spawned. The conversion now retries with a growing delay, tolerates
+ * a swapped anchor type, refuses to stack two devices on one block, and puts
+ * the anchor block back if the entity cannot be created.
+ *
+ * @param {import("@minecraft/server").Dimension} dimension
+ * @param {{x: number, y: number, z: number}} location Anchor block position.
+ * @param {number} attemptsLeft Retry budget.
+ */
+function convertAnchorBlock(dimension, location, attemptsLeft) {
+  let block = null;
+  try {
+    block = dimension.getBlock(location);
+  } catch (_) {
+    // Chunk not loaded yet (or the position is out of the world).
+  }
+
+  if (!block) {
+    if (attemptsLeft > 0) {
+      const delay = CONFIG.placement.initialDelayTicks
+        + (CONFIG.placement.maxAttempts - attemptsLeft) * CONFIG.placement.retryBackoffTicks;
+      Debug.warn("Main", `Anchor chunk not loaded at ${location.x}, ${location.y}, ${location.z}; retrying in ${delay} ticks`);
+      system.runTimeout(
+        () => convertAnchorBlock(dimension, location, attemptsLeft - 1),
+        delay,
+      );
+      return;
+    }
+    Debug.error("Main", `Gave up converting the anchor block at ${location.x}, ${location.y}, ${location.z}: chunk never loaded`);
+    return;
+  }
+
+  // Tolerate a swapped anchor type: if any contraption anchor is sitting here,
+  // convert the anchor that is actually present.
+  const anchorTypeId = block.typeId;
+  const entityTypeId = BLOCK_TO_ENTITY[anchorTypeId];
+  if (!entityTypeId) {
+    Debug.warn("Main", `Anchor at ${location.x}, ${location.y}, ${location.z} is now ${anchorTypeId}; leaving it alone`);
+    return;
+  }
+
+  let existing = 0;
+  try {
+    existing = dimension.getEntities({
+      location: { x: location.x + 0.5, y: location.y + 0.5, z: location.z + 0.5 },
+      maxDistance: CONFIG.placement.duplicateRadius,
+      families: ["cc_device"],
+    }).length;
+  } catch (_) {
+    // If the proximity query fails we still attempt the conversion; the
+    // manager rejects a duplicate entity id but a same-block duplicate is only
+    // prevented by this check.
+  }
+  if (existing > 0) {
+    Debug.warn("Main", `A device already occupies ${location.x}, ${location.y}, ${location.z}; removing the extra anchor`);
+    try {
+      dimension.setBlockType(location, "minecraft:air");
+    } catch (_) {}
+    return;
+  }
+
+  let entity = null;
+  try {
+    entity = dimension.spawnEntity(entityTypeId, {
+      x: location.x + 0.5,
+      y: location.y,
+      z: location.z + 0.5,
+    });
+    dimension.setBlockType(location, "minecraft:air");
+
+    if (!deviceManager.register(entity)) {
+      try { entity.remove(); } catch (_) {}
+      dimension.setBlockType(location, anchorTypeId);
+      Debug.error("Main", `Could not register ${entityTypeId}; restoring the anchor block`);
+      return;
+    }
+
+    Debug.info("Main", `Placed ${entityTypeId} at ${location.x}, ${location.y}, ${location.z}`);
+  } catch (error) {
+    if (entity && isEntityValid(entity)) {
+      try { entity.remove(); } catch (_) {}
+    }
+    try {
+      const current = dimension.getBlock(location);
+      if (!current || current.typeId === "minecraft:air") {
+        dimension.setBlockType(location, anchorTypeId);
+      }
+    } catch (_) {}
+
+    if (attemptsLeft > 0) {
+      Debug.warn("Main", `Retrying ${entityTypeId} placement at ${location.x}, ${location.y}, ${location.z}`);
+      system.runTimeout(
+        () => convertAnchorBlock(dimension, location, attemptsLeft - 1),
+        CONFIG.placement.retryBackoffTicks,
+      );
+      return;
+    }
+    Debug.error("Main", `Could not place ${entityTypeId}`, error);
+  }
+}
+
 subscribeSafely("device placement", () => {
   world.afterEvents.playerPlaceBlock.subscribe((event) => {
-  const blockTypeId = event.block?.typeId;
-  const entityTypeId = BLOCK_TO_ENTITY[blockTypeId];
-  if (!entityTypeId) return;
+    const blockTypeId = event.block?.typeId;
+    if (!BLOCK_TO_ENTITY[blockTypeId]) return;
 
-  const dimension = event.player.dimension;
-  const blockLocation = { ...event.block.location };
-  system.run(() => {
-    let entity = null;
-    try {
-      const placedBlock = dimension.getBlock(blockLocation);
-      if (!placedBlock || placedBlock.typeId !== blockTypeId) return;
-
-      entity = dimension.spawnEntity(entityTypeId, {
-        x: blockLocation.x + 0.5,
-        y: blockLocation.y,
-        z: blockLocation.z + 0.5,
-      });
-      dimension.setBlockType(blockLocation, "minecraft:air");
-
-      if (!deviceManager.register(entity)) {
-        try { entity.remove(); } catch (_) {}
-        dimension.setBlockType(blockLocation, blockTypeId);
-        return;
-      }
-      Debug.info("Main", `Placed ${entityTypeId} at ${blockLocation.x}, ${blockLocation.y}, ${blockLocation.z}`);
-    } catch (error) {
-      if (entity && isEntityValid(entity)) {
-        try { entity.remove(); } catch (_) {}
-      }
-      try {
-        const current = dimension.getBlock(blockLocation);
-        if (current?.typeId === "minecraft:air") dimension.setBlockType(blockLocation, blockTypeId);
-      } catch (_) {}
-      Debug.error("Main", `Could not place ${entityTypeId}`, error);
-    }
-  });
+    const dimension = event.player.dimension;
+    const location = {
+      x: Math.floor(event.block.location.x),
+      y: Math.floor(event.block.location.y),
+      z: Math.floor(event.block.location.z),
+    };
+    system.runTimeout(
+      () => convertAnchorBlock(dimension, location, CONFIG.placement.maxAttempts),
+      CONFIG.placement.initialDelayTicks,
+    );
   });
 });
 
+// ---------------------------------------------------------------------------
+// Interaction
+// ---------------------------------------------------------------------------
 function handleInteract(player, target, itemBeforeInteraction) {
   if (!isEntityValid(player) || !target || !ENTITY_TYPES.has(target.typeId)) return;
   const device = deviceManager.getDevice(target);
@@ -124,90 +215,90 @@ subscribeSafely("entity interactions", () => {
 
 subscribeSafely("device damage", () => {
   world.afterEvents.entityHurt.subscribe((event) => {
-  const hurtEntity = event.hurtEntity;
-  if (!hurtEntity) return;
+    const hurtEntity = event.hurtEntity;
+    if (!hurtEntity) return;
 
-  if (ENTITY_TYPES.has(hurtEntity.typeId)) {
-    const device = deviceManager.getDevice(hurtEntity);
-    if (device && event.damage > 0) device.takeDamage(event.damage);
-  }
+    if (ENTITY_TYPES.has(hurtEntity.typeId)) {
+      const device = deviceManager.getDevice(hurtEntity);
+      if (device && event.damage > 0) device.takeDamage(event.damage);
+    }
   });
 });
 
 subscribeSafely("entity death", () => {
   world.afterEvents.entityDie.subscribe((event) => {
-  const deadEntity = event.deadEntity;
-  if (!deadEntity) return;
+    const deadEntity = event.deadEntity;
+    if (!deadEntity) return;
 
-  if (ENTITY_TYPES.has(deadEntity.typeId)) {
-    const device = deviceManager.getDevice(deadEntity);
-    if (device) {
-      let dimension;
-      let position;
-      try { dimension = deadEntity.dimension; } catch (_) {}
-      try { position = deadEntity.location; } catch (_) {}
-      device.onEntityDeath(dimension, position);
-      deviceManager.unregister(deadEntity.id);
+    if (ENTITY_TYPES.has(deadEntity.typeId)) {
+      const device = deviceManager.getDevice(deadEntity);
+      if (device) {
+        let dimension;
+        let position;
+        try { dimension = deadEntity.dimension; } catch (_) {}
+        try { position = deadEntity.location; } catch (_) {}
+        device.onEntityDeath(dimension, position);
+        deviceManager.unregister(deadEntity.id);
+      }
+      return;
     }
-    return;
-  }
 
-  const id = String(deadEntity.id);
-  const device = deviceManager.getDeviceByVictimId(id);
-  if (device) device.onVictimUnavailable(id);
-  try {
-    deadEntity.removeTag(TRAPPED_TAG);
-    deadEntity.removeTag(CAPTURE_RESERVED_TAG);
-  } catch (_) {}
+    const id = String(deadEntity.id);
+    const device = deviceManager.getDeviceByVictimId(id);
+    if (device) device.onVictimUnavailable(id);
+    try {
+      deadEntity.removeTag(TRAPPED_TAG);
+      deadEntity.removeTag(CAPTURE_RESERVED_TAG);
+    } catch (_) {}
   });
 });
 
 subscribeSafely("entity load", () => {
   world.afterEvents.entityLoad.subscribe((event) => {
-  const entity = event.entity;
-  if (!entity) return;
+    const entity = event.entity;
+    if (!entity) return;
 
-  if (ENTITY_TYPES.has(entity.typeId)) {
+    if (ENTITY_TYPES.has(entity.typeId)) {
+      system.runTimeout(() => {
+        if (isEntityValid(entity)) deviceManager.register(entity);
+      }, CONFIG.performance.chunkLoadGracePeriod);
+      return;
+    }
+
+    const hasCaptureTag = (() => {
+      try { return entity.hasTag(TRAPPED_TAG) || entity.hasTag(CAPTURE_RESERVED_TAG); } catch (_) { return false; }
+    })();
+    if (!hasCaptureTag) return;
+
     system.runTimeout(() => {
-      if (isEntityValid(entity)) deviceManager.register(entity);
-    }, CONFIG.performance.chunkLoadGracePeriod);
-    return;
-  }
-
-  const hasCaptureTag = (() => {
-    try { return entity.hasTag(TRAPPED_TAG) || entity.hasTag(CAPTURE_RESERVED_TAG); } catch (_) { return false; }
-  })();
-  if (!hasCaptureTag) return;
-
-  system.runTimeout(() => {
-    if (!isEntityValid(entity) || deviceManager.hasVictimOrPending(entity.id)) return;
-    clearStaleCapture(entity);
-  }, CONFIG.performance.chunkLoadGracePeriod + 5);
+      if (!isEntityValid(entity) || deviceManager.hasVictimOrPending(entity.id)) return;
+      clearStaleCapture(entity);
+    }, CONFIG.performance.chunkLoadGracePeriod + 5);
   });
 });
 
 subscribeSafely("player spawn", () => {
   world.afterEvents.playerSpawn.subscribe((event) => {
-  const player = event.player;
-  system.runTimeout(() => {
-    if (!isEntityValid(player)) return;
-    const device = deviceManager.getDeviceByVictimId(player.id);
-    if (device?.reconnectVictim(player)) return;
+    const player = event.player;
+    system.runTimeout(() => {
+      if (!isEntityValid(player)) return;
+      const device = deviceManager.getDeviceByVictimId(player.id);
+      if (device?.reconnectVictim(player)) return;
 
-    try {
-      if (player.hasTag(TRAPPED_TAG) || player.hasTag(CAPTURE_RESERVED_TAG)) {
-        clearStaleCapture(player);
-      }
-    } catch (_) {}
-  }, CONFIG.performance.chunkLoadGracePeriod + 5);
+      try {
+        if (player.hasTag(TRAPPED_TAG) || player.hasTag(CAPTURE_RESERVED_TAG)) {
+          clearStaleCapture(player);
+        }
+      } catch (_) {}
+    }, CONFIG.performance.chunkLoadGracePeriod + 5);
   });
 });
 
 subscribeSafely("player leave", () => {
   world.afterEvents.playerLeave.subscribe((event) => {
-  const playerId = String(event.playerId);
-  const device = deviceManager.getDeviceByVictimId(playerId);
-  if (device) device.onVictimUnavailable(playerId);
+    const playerId = String(event.playerId);
+    const device = deviceManager.getDeviceByVictimId(playerId);
+    if (device) device.onVictimUnavailable(playerId);
   });
 });
 
@@ -228,63 +319,67 @@ function clearStaleCapture(entity) {
 
 subscribeSafely("redstone polling", () => {
   system.runInterval(() => {
-  for (const device of deviceManager.devices.values()) {
-    if (device._disposed || !device._entityValid()) continue;
-    const position = device.position;
-    if (!position) continue;
+    for (const device of deviceManager.devices.values()) {
+      if (device._disposed || !device._entityValid()) continue;
+      const position = device.position;
+      if (!position) continue;
 
-    let powered = false;
-    try {
-      const dimension = device.entity.dimension;
-      const center = {
-        x: Math.floor(position.x),
-        y: Math.floor(position.y),
-        z: Math.floor(position.z),
-      };
-      const offsets = [
-        { x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 },
-        { x: 0, y: 1, z: 0 }, { x: 0, y: -1, z: 0 },
-        { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 },
-      ];
-      for (const offset of offsets) {
-        try {
-          const block = dimension.getBlock({
-            x: center.x + offset.x,
-            y: center.y + offset.y,
-            z: center.z + offset.z,
-          });
-          if ((block?.getRedstonePower?.() || 0) > 0) {
-            powered = true;
-            break;
+      let powered = false;
+      try {
+        const dimension = device.entity.dimension;
+        const center = {
+          x: Math.floor(position.x),
+          y: Math.floor(position.y),
+          z: Math.floor(position.z),
+        };
+        const offsets = [
+          { x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 },
+          { x: 0, y: 1, z: 0 }, { x: 0, y: -1, z: 0 },
+          { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 },
+        ];
+        for (const offset of offsets) {
+          try {
+            const block = dimension.getBlock({
+              x: center.x + offset.x,
+              y: center.y + offset.y,
+              z: center.z + offset.z,
+            });
+            if ((block?.getRedstonePower?.() || 0) > 0) {
+              powered = true;
+              break;
+            }
+          } catch (_) {
+            // Skip this side if its neighboring chunk is not loaded.
           }
-        } catch (_) {
-          // Skip this side if its neighboring chunk is not loaded.
         }
+      } catch (_) {
+        // Redstone queries may fail at unloaded chunk boundaries.
       }
-    } catch (_) {
-      // Redstone queries may fail at unloaded chunk boundaries.
+      try {
+        device.onRedstonePower(powered);
+      } catch (error) {
+        // One broken device must never kill the shared polling interval.
+        Debug.error("Main", "Redstone poll failed for a device", error);
+      }
     }
-    try {
-      device.onRedstonePower(powered);
-    } catch (error) {
-      // One broken device must never kill the shared polling interval.
-      Debug.error("Main", "Redstone poll failed for a device", error);
-    }
-  }
   }, CONFIG.performance.redstonePollIntervalTicks);
 });
 
+// ---------------------------------------------------------------------------
+// Admin commands
+// ---------------------------------------------------------------------------
 /**
  * Admin commands arrive as /scriptevent so they work with the stable
  * @minecraft/server dependency. The beta-only world.beforeEvents.chatSend
- * API is undefined under the stable types (audit finding F1), so the old
- * !cc chat commands never ran at all.
+ * API is undefined under the stable types, so the old !cc chat commands never
+ * ran at all.
  *
  * Commands (cheats must be enabled; every command requires the cc:admin tag):
  *   /scriptevent cc:give      — add all five devices to your inventory
  *   /scriptevent cc:devices   — list registered devices and their state
  *   /scriptevent cc:debug on  — enable debug logging
  *   /scriptevent cc:debug off — disable debug logging
+ *   /scriptevent cc:help      — show this list
  */
 function handleAdminScriptEvent(event) {
   const sender = event.sourceEntity;
@@ -311,8 +406,11 @@ function handleAdminScriptEvent(event) {
     case "cc:debug":
       toggleAdminDebug(sender, event.message);
       return;
+    case "cc:help":
+      sendAdminHelp(sender);
+      return;
     default:
-      sender.sendMessage("§e[Cursed Contraptions] Unknown command. Use /scriptevent cc:give, /scriptevent cc:devices, or /scriptevent cc:debug on|off.");
+      sender.sendMessage("§e[Cursed Contraptions] Unknown command. Try cc:give, cc:devices or cc:debug — see /scriptevent cc:help.");
   }
 }
 
@@ -342,8 +440,16 @@ function listAdminDevices(sender) {
   // the client once it exceeds a few hundred characters (audit finding F6).
   sender.sendMessage(`§6[Cursed Contraptions] Total: ${deviceManager.totalCount}, Active: ${deviceManager.activeCount}`);
   for (const device of deviceManager.devices.values()) {
-    sender.sendMessage(`  ${device.typeId} — ${device.stateMachine.state} — Durability: ${device.durability}/${device.maxDurability}`);
+    sender.sendMessage(`  §7${device.typeId}§r — ${device.statusLine}`);
   }
+}
+
+function sendAdminHelp(sender) {
+  sender.sendMessage("§6[Cursed Contraptions] commands:");
+  sender.sendMessage("  §f/scriptevent cc:give§7 — add all five devices");
+  sender.sendMessage("  §f/scriptevent cc:devices§7 — list devices and their state");
+  sender.sendMessage("  §f/scriptevent cc:debug on|off§7 — toggle debug logging");
+  sender.sendMessage("§7Requires the §fcc:admin§7 tag: §f/tag <player> add cc:admin");
 }
 
 function toggleAdminDebug(sender, message) {

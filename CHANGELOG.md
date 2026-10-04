@@ -5,6 +5,93 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog 1.1](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-10-04
+
+Art, containment, and placement release, built from three in-game reports:
+*"some items cannot be placed — they are invisible after placement"*,
+*"the cage mechanics are rough and make mobs stutter"*, and *"the objects need
+more animations and polish"* (clarified in discussion as: something is there,
+but nothing renders). Identifiers, pack UUIDs, dynamic-property keys, and
+recipes are unchanged, so existing worlds keep their devices, captives, and
+reinforcement. The declared minimum engine version and the stable
+`@minecraft/server` 1.17.0 dependency are unchanged; no Beta APIs are used.
+
+### Fixed
+
+- **Invisible devices (rendering).** Every shipped texture was a grayscale or
+  indexed-colour PNG, and Bedrock silently refuses to bind those to entity
+  models — which is exactly the reported symptom of a device that has a hitbox
+  but draws nothing. All seventeen textures (5 entity atlases, 5 block faces,
+  5 inventory icons, 2 pack icons) are now 8-bit true-colour RGBA, and
+  `tests/validate_build.py` rejects any texture that is not colour type 6, so
+  the regression cannot return unnoticed.
+- **Invisible anchor blocks.** The placeable block pointed at
+  `geometry.cc_iron_maiden_block`, a model that was never written into the
+  resource pack. A placed device that did not convert into an entity therefore
+  left a completely invisible obstacle behind. Anchor blocks are now plain full
+  cubes with a painted side texture, and the dangling geometry reference is gone.
+- **Silent placement failure.** Placement converted the anchor block exactly
+  once, one tick later, and gave up without a trace if the chunk was not loaded
+  or the block no longer matched. Conversion now retries with a growing delay,
+  accepts whichever contraption anchor is actually present, refuses to stack a
+  second device on an occupied block, and restores the anchor block if the
+  entity cannot be created.
+- **Mismatched item icons.** The item atlas published aliases such as
+  `iron_maiden` while the item component requested `cc_item_iron_maiden`, so no
+  inventory icon resolved. The atlas now publishes the aliases the items ask
+  for, generated from a single table so the two cannot drift apart again.
+- **Mob stutter.** Containment teleported a captive back onto its seat every
+  five ticks and re-asserted the lock constantly, which read in-game as the mob
+  juddering. A captive is now only moved when it genuinely leaves its drift
+  window, and never more than once per second.
+- **Duplicate block definitions.** Five hand-written
+  `behavior_pack/blocks/*.json` files declared the same identifiers as the
+  generated `*_block.json` files. Bedrock refuses to load a duplicated
+  identifier, so the stale copies are deleted and the generator removes them on
+  every rebuild.
+
+### Changed
+
+- **Containment model.** Captured players keep their movement input locked and
+  are only pulled back when knocked far away. Captured mobs are held with
+  Slowness VII plus Blindness (refreshed every second, particles disabled),
+  which works on every vanilla mob with no custom entity definition and leaves
+  the captive visibly struggling rather than frozen mid-air. Ordinary drift
+  never triggers a correction; only a genuinely escaped captive is unseated.
+- **Devices are static fixtures.** Device entities no longer apply gravity and
+  no longer collide with blocks, so a device can never sink through a floor
+  that unloads for a tick and can never squeeze a captive out of its own seat.
+  Devices remain targetable, breakable, and unpushable.
+- **Complete animation set.** Nine animations per device (`idle`, `detect`,
+  `close`, `closed`, `torture`, `strain`, `open`, `released`, `broken`) with
+  controllers in which every state can reach every other state, including the
+  previously unreachable `detecting` and `released` states on four devices.
+  Animation lengths are aligned with the gameplay timings for capture delay,
+  closing, the closed pause, and the torture interval.
+- **Hand-painted art.** The five entity atlases, the five block textures, and
+  the five inventory icons are painted pixel art with per-device palettes: iron
+  plating and rivets, oak grain and rope, black iron bars over a bone skull,
+  blood-stained timber with a tension wheel, and an obsidian reliquary with
+  gold bands and a soul gem.
+- **Feedback.** Hitting a device throws sparks; hitting an occupied device makes
+  the captive flinch; capture, close, release, and reinforcement spawn
+  particles; reinforcements and captives receive clear localized messages.
+- **Release timing.** Hatching open now takes its full 1.5-second animation
+  before the released state begins, instead of cutting the animation off.
+
+### Validation
+
+- `npm test` (33 tests: 9 unit, 24 in-scope lifecycle/integration) covers placement conversion, capture, containment,
+  rescue, reinforcement, durability, break-and-drop, recovery, admin commands,
+  and the full place → capture → torture → break → drop → unregister flow.
+- `npm run typecheck` passes against the stable 1.17.0 API surface.
+- `tests/validate_build.py` now fails on non-RGBA textures and on duplicated
+  block identifiers, and the pack validates with 0 errors both before and after
+  packaging.
+- Automated checks cannot render assets or simulate a real client input path.
+  In-engine rendering, touch controls, and Realm propagation still need a manual
+  pass; see `tests/GAMETESTS.md`.
+
 ## [0.1.2] - 2026-10-04
 
 Repair and playability release based on the reported Bedrock 26.2 hosted-multiplayer

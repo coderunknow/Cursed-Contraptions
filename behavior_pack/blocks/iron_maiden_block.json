@@ -10,25 +10,16 @@
     },
     "components": {
       "minecraft:destructible_by_mining": {
-        "seconds_to_destroy": 3.0
+        "seconds_to_destroy": 1.0
       },
       "minecraft:destructible_by_explosion": {
-        "explosion_resistance": 5.0
+        "explosion_resistance": 6.0
       },
-      "minecraft:geometry": "geometry.cc_iron_maiden_block",
       "minecraft:material_instances": {
         "*": {
           "texture": "cc_iron_maiden_side",
-          "render_method": "alpha_test"
+          "render_method": "opaque"
         }
-      },
-      "minecraft:collision_box": {
-        "origin": [-6, 0, -6],
-        "size": [12, 24, 12]
-      },
-      "minecraft:selection_box": {
-        "origin": [-6, 0, -6],
-        "size": [12, 24, 12]
       }
     }
   }

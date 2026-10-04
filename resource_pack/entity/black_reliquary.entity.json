@@ -14,16 +14,24 @@
       },
       "animations": {
         "idle": "animation.cc_black_reliquary.idle",
-        "open": "animation.cc_black_reliquary.open",
+        "detect": "animation.cc_black_reliquary.detect",
         "close": "animation.cc_black_reliquary.close",
+        "closed": "animation.cc_black_reliquary.closed",
         "torture": "animation.cc_black_reliquary.torture",
+        "strain": "animation.cc_black_reliquary.strain",
+        "open": "animation.cc_black_reliquary.open",
+        "released": "animation.cc_black_reliquary.released",
         "broken": "animation.cc_black_reliquary.broken",
         "controller": "controller.animation.cc_black_reliquary.state"
       },
       "scripts": {
-        "animate": ["controller"]
+        "animate": [
+          "controller"
+        ]
       },
-      "render_controllers": ["controller.render.default"]
+      "render_controllers": [
+        "controller.render.default"
+      ]
     }
   }
 }

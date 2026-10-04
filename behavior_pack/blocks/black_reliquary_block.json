@@ -10,25 +10,16 @@
     },
     "components": {
       "minecraft:destructible_by_mining": {
-        "seconds_to_destroy": 5.0
+        "seconds_to_destroy": 1.0
       },
       "minecraft:destructible_by_explosion": {
-        "explosion_resistance": 8.0
+        "explosion_resistance": 6.0
       },
-      "minecraft:geometry": "geometry.cc_black_reliquary_block",
       "minecraft:material_instances": {
         "*": {
           "texture": "cc_black_reliquary_side",
-          "render_method": "alpha_test"
+          "render_method": "opaque"
         }
-      },
-      "minecraft:collision_box": {
-        "origin": [-8, 0, -8],
-        "size": [16, 28, 16]
-      },
-      "minecraft:selection_box": {
-        "origin": [-8, 0, -8],
-        "size": [16, 28, 16]
       }
     }
   }
