@@ -1,3 +1,5 @@
+# Cursed Contraptions — English (US)
+
 item.cc:item_iron_maiden.name=Iron Maiden
 item.cc:item_cursed_stocks.name=Cursed Stocks
 item.cc:item_gravebinder_cage.name=Gravebinder Cage
@@ -16,7 +18,8 @@ entity.cc:gravebinder_cage.name=Gravebinder Cage
 entity.cc:regret_rack.name=The Regret Rack
 entity.cc:black_reliquary.name=The Black Reliquary
 
-action.interact.cursed_contraptions=Use / Rescue
+action.cc.use_device=Inspect / Reinforce
+action.cc.rescue_captive=Use / Rescue
 
 pack.name=Cursed Contraptions
 pack.description=Medieval torture contraptions for chaotic multiplayer fun

@@ -3,19 +3,19 @@
   "texture_name": "atlas.items",
   "texture_data": {
     "cc_item_iron_maiden": {
-      "textures": "textures/items/cc_item_iron_maiden"
+      "textures": "textures/items/cc_item_iron_maiden.png"
     },
     "cc_item_cursed_stocks": {
-      "textures": "textures/items/cc_item_cursed_stocks"
+      "textures": "textures/items/cc_item_cursed_stocks.png"
     },
     "cc_item_gravebinder_cage": {
-      "textures": "textures/items/cc_item_gravebinder_cage"
+      "textures": "textures/items/cc_item_gravebinder_cage.png"
     },
     "cc_item_regret_rack": {
-      "textures": "textures/items/cc_item_regret_rack"
+      "textures": "textures/items/cc_item_regret_rack.png"
     },
     "cc_item_black_reliquary": {
-      "textures": "textures/items/cc_item_black_reliquary"
+      "textures": "textures/items/cc_item_black_reliquary.png"
     }
   }
 }

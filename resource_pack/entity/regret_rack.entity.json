@@ -14,15 +14,24 @@
       },
       "animations": {
         "idle": "animation.cc_regret_rack.idle",
-        "stretch": "animation.cc_regret_rack.stretch",
+        "detect": "animation.cc_regret_rack.detect",
+        "close": "animation.cc_regret_rack.close",
+        "closed": "animation.cc_regret_rack.closed",
         "torture": "animation.cc_regret_rack.torture",
+        "strain": "animation.cc_regret_rack.strain",
+        "open": "animation.cc_regret_rack.open",
+        "released": "animation.cc_regret_rack.released",
         "broken": "animation.cc_regret_rack.broken",
         "controller": "controller.animation.cc_regret_rack.state"
       },
       "scripts": {
-        "animate": ["controller"]
+        "animate": [
+          "controller"
+        ]
       },
-      "render_controllers": ["controller.render.default"]
+      "render_controllers": [
+        "controller.render.default"
+      ]
     }
   }
 }

@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BP = ROOT / "behavior_pack"
 RP = ROOT / "resource_pack"
-RELEASE_VERSION = [0, 1, 2]
+RELEASE_VERSION = [0, 1, 3]
 MIN_ENGINE_VERSION = [1, 21, 60]
 SERVER_API_VERSION = "1.17.0"
 EXPECTED_PACKAGES = {
@@ -171,12 +171,21 @@ def validate_json_and_pngs() -> int:
             report_error(f"Missing PNG: {path.relative_to(ROOT)}")
             continue
         try:
-            header = path.read_bytes()[:24]
-            if len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n":
+            header = path.read_bytes()[:26]
+            if len(header) != 26 or header[:8] != b"\x89PNG\r\n\x1a\n":
                 raise ValueError("invalid PNG signature/header")
             width, height = struct.unpack(">II", header[16:24])
             if width < 1 or height < 1:
                 raise ValueError(f"invalid dimensions {width}x{height}")
+            # v0.1.3: Bedrock quietly drops indexed and grayscale textures, which
+            # is what turned every device model invisible in v0.1.2. Every shipped
+            # texture must be true-colour RGBA (8-bit, colour type 6).
+            bit_depth, color_type = header[24], header[25]
+            if (bit_depth, color_type) != (8, 6):
+                raise ValueError(
+                    f"texture is {bit_depth}-bit colour type {color_type}; "
+                    "Bedrock requires 8-bit RGBA (colour type 6)"
+                )
             png_count += 1
         except (OSError, ValueError, struct.error) as error:
             report_error(f"Invalid PNG {path.relative_to(ROOT)}: {error}")

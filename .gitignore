@@ -37,3 +37,6 @@ npm-debug.log*
 # Temporary files
 *.tmp
 *.bak
+
+# Dev-only QA renders from tools/texturegen/preview.py
+tools/texturegen/previews/

@@ -16,17 +16,83 @@ export const CONFIG = {
     pollIntervalTicks: 5,
     idlePollIntervalTicks: 20,
     redstonePollIntervalTicks: 10,
-    interactionFeedbackCooldownTicks: 40,
+    interactionFeedbackCooldownTicks: 30,
     maxActiveDevices: 32,
     entityScanRadius: 8,
     maxParticlesPerEvent: 8,
     chunkLoadGracePeriod: 40,
   },
 
+  /**
+   * Placement pipeline. The anchor block is converted to the device entity on
+   * the next tick; if the chunk is not loaded yet the conversion retries with
+   * a growing delay rather than silently losing the device (v0.1.2 bug).
+   */
+  placement: {
+    initialDelayTicks: 1,
+    maxAttempts: 6,
+    retryBackoffTicks: 4,
+    /** Prevent stacking two devices in the same block. */
+    duplicateRadius: 0.75,
+  },
+
+  /**
+   * Containment. Players are held by locked movement input; mobs are frozen
+   * with Slowness VII (movement multiplier reaches zero), which works on every
+   * vanilla mob and needs no custom entity definition. Teleporting the victim
+   * every tick is what made v0.1.2 look like the captive was stuttering, so
+   * position corrections now only happen on a real escape.
+   */
+  containment: {
+    /** Distance past which a captive rattles the frame (blocks). */
+    mobDriftLimit: 1.25,
+    /** Distance a mob must reach before it is pulled back. */
+    mobEscapeLimit: 2.5,
+    /** Players may drift a little (knockback, water) before being pulled back. */
+    playerDriftLimit: 2.0,
+    /** Beyond this distance the captive has genuinely escaped and is freed. */
+    leashRadius: 16,
+    /** Amplifier 6 = Slowness VII, which pins movement at zero. */
+    mobFreezeAmplifier: 6,
+    /** Effect duration; refreshed every seatRefreshTicks. */
+    mobFreezeDurationTicks: 80,
+    /** Minimum ticks between corrections for the same captive. */
+    correctionCooldownTicks: 20,
+    /** How often the hold on the captive is re-asserted. */
+    seatRefreshTicks: 20,
+  },
+
+  /** Idle "the captive is struggling" rattle overlays. */
+  struggle: {
+    enabled: true,
+    minIntervalTicks: 120,
+    maxIntervalTicks: 320,
+    /** Radius a capturable victim must be within to be considered "occupied". */
+    strainDurationTicks: 12,
+  },
+
   timings: {
     closedPauseTicks: 10,
-    releaseAnimationTicks: 20,
+    releaseAnimationTicks: 30,
     brokenAnimationTicks: 30,
+    /** A captive can be freed by knocking the device apart after this delay. */
+    breakGraceTicks: 0,
+  },
+
+  particles: {
+    impactEnabled: true,
+    smokeCount: 4,
+    sparkEnabled: true,
+    sparkCount: 2,
+    /** Extra burst when a device closes on a victim. */
+    captureBurstCount: 6,
+    /** Ambient burst every torture cycle. */
+    tortureBurstCount: 3,
+  },
+
+  vignette: {
+    enabled: true,
+    fadeInTicks: 10,
   },
 
   ironMaiden: {
@@ -132,17 +198,5 @@ export const CONFIG = {
     armorSpeedMultiplier: 0.85,
     redstoneActivationDelay: 5,
     dropOnBreak: true,
-  },
-
-  vignette: {
-    enabled: true,
-    fadeInTicks: 10,
-  },
-
-  particles: {
-    impactEnabled: true,
-    smokeCount: 4,
-    sparkEnabled: true,
-    sparkCount: 2,
   },
 };

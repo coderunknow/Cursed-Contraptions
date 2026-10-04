@@ -14,15 +14,24 @@
       },
       "animations": {
         "idle": "animation.cc_gravebinder_cage.idle",
+        "detect": "animation.cc_gravebinder_cage.detect",
         "close": "animation.cc_gravebinder_cage.close",
+        "closed": "animation.cc_gravebinder_cage.closed",
         "torture": "animation.cc_gravebinder_cage.torture",
+        "strain": "animation.cc_gravebinder_cage.strain",
+        "open": "animation.cc_gravebinder_cage.open",
+        "released": "animation.cc_gravebinder_cage.released",
         "broken": "animation.cc_gravebinder_cage.broken",
         "controller": "controller.animation.cc_gravebinder_cage.state"
       },
       "scripts": {
-        "animate": ["controller"]
+        "animate": [
+          "controller"
+        ]
       },
-      "render_controllers": ["controller.render.default"]
+      "render_controllers": [
+        "controller.render.default"
+      ]
     }
   }
 }
