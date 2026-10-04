@@ -57,6 +57,7 @@ export class TortureDevice {
     this._canActivate = false;
     this._disposed = false;
     this._brokenHandled = false;
+    this._interactionFeedbackTicks = new Map();
     this._lastPosition = null;
     this._lastDimension = null;
 
@@ -754,7 +755,10 @@ export class TortureDevice {
     if (this._disposed || !isEntityValid(player) || this.stateMachine.is(DeviceState.BROKEN)) return false;
 
     if (this.stateMachine.is(DeviceState.CAPTURING, DeviceState.CLOSED, DeviceState.TORTURING)) {
-      if (String(player.id) === String(this.victimId)) return false;
+      if (String(player.id) === String(this.victimId)) {
+        this._sendInteractionFeedback(player, "§eYou cannot free yourself. Ask another player to use the device.");
+        return false;
+      }
       if (!this.release()) return false;
       try {
         player.sendMessage(`§aYou freed the captive from the ${this._displayName()}.`);
@@ -764,7 +768,7 @@ export class TortureDevice {
 
     if (heldItem && this._isArmorItem(heldItem.typeId)) {
       if (this.armorCount >= this.config.armorSlots) {
-        try { player.sendMessage("§eThis device cannot be reinforced any further."); } catch (_) {}
+        this._sendInteractionFeedback(player, "§eThis device cannot be reinforced any further.");
         return false;
       }
       if (!this._consumeHeldItem(player, heldItem)) return false;
@@ -777,6 +781,15 @@ export class TortureDevice {
       return true;
     }
 
+    if (this.stateMachine.is(DeviceState.IDLE, DeviceState.DETECTING)) {
+      this._sendInteractionFeedback(
+        player,
+        `§7${this._displayName()} activates automatically when a nearby player or mob enters range. Hold armor or an elytra to reinforce (${this.armorCount}/${this.config.armorSlots}).`,
+      );
+      return true;
+    }
+
+    this._sendInteractionFeedback(player, `§7${this._displayName()} is busy. Try interacting again when it is ready.`);
     return false;
   }
 
@@ -807,6 +820,32 @@ export class TortureDevice {
 
   _displayName() {
     return DEVICE_NAMES[this.typeId] || "Cursed Contraption";
+  }
+
+  _sendInteractionFeedback(player, message) {
+    if (!isEntityValid(player) || player.typeId !== "minecraft:player") return false;
+
+    const playerId = String(player.id);
+    const now = system.currentTick;
+    const last = this._interactionFeedbackTicks.get(playerId);
+    if (Number.isFinite(last)
+      && Number.isFinite(now)
+      && now - last < CONFIG.performance.interactionFeedbackCooldownTicks) {
+      return false;
+    }
+
+    if (!this._interactionFeedbackTicks.has(playerId) && this._interactionFeedbackTicks.size >= 128) {
+      const oldestPlayerId = this._interactionFeedbackTicks.keys().next().value;
+      if (oldestPlayerId !== undefined) this._interactionFeedbackTicks.delete(oldestPlayerId);
+    }
+    if (Number.isFinite(now)) this._interactionFeedbackTicks.set(playerId, now);
+
+    try {
+      player.sendMessage(message);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   _notifyVictim(victim, message) {

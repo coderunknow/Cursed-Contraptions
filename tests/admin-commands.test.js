@@ -3,8 +3,10 @@ import test from "node:test";
 import { CONFIG } from "../behavior_pack/scripts/config.js";
 import { deviceManager } from "../behavior_pack/scripts/devices/device-manager.js";
 import {
+  advanceTicks,
   resetSystem,
   system,
+  world,
 } from "./mocks/minecraft-server.mjs";
 
 // Importing the real entry point subscribes every event handler against the
@@ -106,6 +108,57 @@ test("the entry point subscribes to scriptevent with the cc: namespace filter", 
   const admin = new FakePlayer({ tags: ["cc:admin"] });
   fireScriptEvent({ id: "other:give", message: "", sourceEntity: admin });
   assert.equal(admin.messages.length, 0);
+});
+
+test("entity interaction event provides idle guidance and routes reinforcement", () => {
+  const deviceEntity = new FakeDeviceEntity();
+  const device = deviceManager.register(deviceEntity);
+  assert.ok(device);
+
+  const inventory = new FakeContainer();
+  const player = new FakePlayer({ inventory });
+  world.afterEvents.playerInteractWithEntity.fire({
+    player,
+    target: deviceEntity,
+    beforeItemStack: undefined,
+  });
+  advanceTicks(1);
+  assert.match(player.messages.at(-1), /activates automatically/);
+  assert.match(player.messages.at(-1), /Hold armor or an elytra/);
+
+  world.afterEvents.playerInteractWithEntity.fire({
+    player,
+    target: deviceEntity,
+    beforeItemStack: undefined,
+  });
+  advanceTicks(1);
+  assert.equal(player.messages.length, 1, "repeated empty-hand taps are throttled");
+
+  const helmet = { typeId: "minecraft:iron_helmet", amount: 1 };
+  inventory.setItem(0, helmet);
+  world.afterEvents.playerInteractWithEntity.fire({
+    player,
+    target: deviceEntity,
+    beforeItemStack: helmet,
+  });
+  advanceTicks(1);
+
+  assert.equal(inventory.getItem(0), undefined);
+  assert.equal(device.armorCount, 1);
+  assert.match(player.messages.at(-1), /Reinforced Iron Maiden/);
+
+  // Drive the same subscribed entry-point handler for a teammate rescue.
+  device.stateMachine.forceState("capturing");
+  device.victimId = "captive-player";
+  const teammate = new FakePlayer();
+  world.afterEvents.playerInteractWithEntity.fire({
+    player: teammate,
+    target: deviceEntity,
+    beforeItemStack: undefined,
+  });
+  advanceTicks(1);
+  assert.equal(device.stateMachine.state, "opening");
+  assert.match(teammate.messages.at(-1), /freed the captive/);
 });
 
 test("commands are ignored for non-player or missing sources", () => {

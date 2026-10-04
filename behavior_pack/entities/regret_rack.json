@@ -81,10 +81,22 @@
         "interactions": [
           {
             "on_interact": {
-              "event": "cc:on_interact"
+              "filters": {
+                "all_of": [
+                  {
+                    "test": "is_family",
+                    "subject": "other",
+                    "value": "player"
+                  }
+                ]
+              },
+              "event": "cc:on_interact",
+              "target": "self"
             },
             "use_item": false,
-            "interact_text": "Interact"
+            "interact_text": "action.interact.cursed_contraptions",
+            "cooldown": 0.5,
+            "swing": false
           }
         ]
       },

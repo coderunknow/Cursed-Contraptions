@@ -5,9 +5,11 @@ the shipped `Cursed-Contraptions.mcaddon` (the build script only packs
 `behavior_pack/` and `resource_pack/`, and the GameTest pack intentionally
 depends on beta script modules — GameTest is beta-only).
 
-These tests could not be executed from the automated v0.1.1 audit environment
-(`minecraft.net` was unreachable, so no Bedrock Dedicated Server). Run them
-once by hand before merging; the whole flow takes about 10 minutes.
+These tests are not run by `npm test` or the pack-build validator. They require a
+Bedrock client/server and must be run in-engine; the automated checks use mocks
+and cannot validate real rendering, touchscreen/controller input, Realm pack
+propagation, or multiplayer behavior. Run the relevant steps below in a test
+world before treating those live behaviors as verified.
 
 ## 1. World setup (one time)
 
@@ -73,8 +75,8 @@ Known limitations of the checks:
 - `redstone_triggered` proves the end-to-end chain (power → activation). The
   activation can also come from the normal idle proximity poll, so strict
   timing attribution to the redstone path alone is observational.
-- Simulated players never fully reproduce touch-control interaction; verify
-  one rescue on a real second device/console once.
+- Simulated players never fully reproduce touch/controller interaction or
+  Realm propagation; verify these paths with real Bedrock clients.
 
 ## 4. Manual spot-checks not automatable here
 
@@ -83,5 +85,19 @@ Known limitations of the checks:
    `/scriptevent cc:debug off` (these need cheats ON).
 2. Place each of the five devices from the creative inventory or by crafting;
    the anchor block must disappear and the animated device entity appear.
-3. Watch the animations cycle (idle → close → torture → open → idle) and the
-   broken animation on break.
+3. Inspect every device model and inventory icon in daylight and shade. Check
+   that no atlas texture is missing, stretched, cropped, or bleeding across UVs.
+4. On a touch client, aim at a device and confirm the localized **Use / Rescue**
+   button appears and works. On keyboard/controller, interact with the entity
+   using the normal control. Empty-hand use should explain its automatic capture
+   and reinforcement behavior; repeated taps should not flood chat.
+5. Hold an armor piece, reinforce an unoccupied device, and confirm only one
+   item is consumed. Fill its slots and confirm further armor is rejected without
+   being consumed. Capture a player and a mob; rescue the player with a second
+   player and verify self-rescue receives guidance.
+6. Watch the animations cycle (idle → close → torture → open → idle), break a
+   device, and verify the captive is released and exactly one device item drops.
+7. For the reported target, repeat the interaction/capture checks with two
+   Bedrock 26.2 clients in a copied hosted multiplayer/Realm world after the
+   owner enables both packs. Confirm a rejoin preserves/reconciles the device.
+   Do not treat the mocked suite or a single-player test as Realm verification.

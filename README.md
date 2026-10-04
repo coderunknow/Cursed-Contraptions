@@ -2,14 +2,14 @@
 
 **Five animated, placeable trap devices for Minecraft Bedrock multiplayer.**
 
-Release **v0.1.1** · Requires **Minecraft Bedrock 1.21.60 or newer**. Uses the stable `@minecraft/server` 1.17.0 API; no Beta APIs toggle is required.
+Release **v0.1.2** · Declared minimum engine version **1.21.60**; prepared for the reported **Bedrock 26.2 multiplayer test**. Uses stable `@minecraft/server` 1.17.0; no Beta APIs toggle is required.
 
 ## Features
 
-- Five craftable devices with distinct capture ranges, damage, cycle speeds, and durability.
+- Five craftable devices with distinct capture ranges, damage, cycle speeds, and durability, with corrected block/entity texture mapping and readable inventory icons.
 - Automatic proximity capture, a short escape window, and synchronized closing animations.
 - Captured players have movement disabled until rescued or released; mobs are kept contained.
-- Nearby teammates can open an occupied device. Captured players cannot rescue themselves.
+- Nearby teammates can open an occupied device. Captured players cannot rescue themselves; the interaction prompt and feedback make available actions clearer.
 - Armor pieces reinforce an unoccupied device; interacting with an occupied device rescues first.
 - Redstone activation, persisted device state, breakable durability, and a single item drop on break.
 - Active-device limits, local entity queries, and bounded timers to keep work predictable.
@@ -19,6 +19,7 @@ Release **v0.1.1** · Requires **Minecraft Bedrock 1.21.60 or newer**. Uses the 
 1. Download and import `Cursed-Contraptions.mcaddon` into Bedrock Edition.
 2. Enable both **Cursed Contraptions** packs in world settings.
 3. Cheats are optional; use the recipes below for survival, or `/give @s cc:item_iron_maiden` (replace the item ID for another device).
+4. For a Realm, the owner should enable both packs on a copy of the world first; the shipped add-on uses stable APIs and does not require Beta APIs.
 
 For a dedicated server, extract the `.mcaddon` and install each contained `.mcpack` in the matching `behavior_packs/` and `resource_packs/` directories. Add both packs to the world pack lists and restart.
 
@@ -26,7 +27,7 @@ For a dedicated server, extract the `.mcaddon` and install each contained `.mcpa
 
 ### Place and capture
 
-Place a device item on a solid surface. It becomes an animated device entity; the temporary anchor block is removed. Nearby eligible players and mobs are detected automatically. During the capture delay, leaving the configured radius cancels the attempt. Creative and spectator players are immune.
+Place a device item on a solid surface. It becomes an animated device entity; the temporary anchor block is removed. Nearby eligible players and mobs are detected automatically. During the capture delay, leaving the configured radius cancels the attempt. Creative and spectator players are immune. On touch controls, aim at the device and use the localized **Use / Rescue** action; on keyboard/controller, use the normal entity-interact control. An empty-hand interaction explains what the device does and how to reinforce it.
 
 ### Rescue and reinforce
 
@@ -121,7 +122,7 @@ The automated suite checks JavaScript syntax, type conformance against the stabl
 - Behavior pack logic is in `behavior_pack/scripts/`; each device uses the shared `TortureDevice` lifecycle.
 - Entity dynamic properties persist server-side state; client-sync entity properties mirror state, durability, and reinforcement count.
 - Device detection is local, idle checks are throttled, and the active-device ceiling is enforced.
-- Natural structure/world generation and structure loot are not implemented in v0.1.1.
+- Natural structure/world generation and structure loot are not implemented in v0.1.2.
 
 ## License
 
