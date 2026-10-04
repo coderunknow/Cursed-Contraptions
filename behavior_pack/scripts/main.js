@@ -97,23 +97,28 @@ subscribeSafely("device placement", () => {
   });
 });
 
-function handleInteract(player, target) {
+function handleInteract(player, target, itemBeforeInteraction) {
   if (!isEntityValid(player) || !target || !ENTITY_TYPES.has(target.typeId)) return;
   const device = deviceManager.getDevice(target);
   if (!device) return;
 
-  let heldItem = null;
-  try {
-    const inventory = player.getComponent("minecraft:inventory")?.container;
-    if (inventory) heldItem = inventory.getItem(player.selectedSlotIndex) || null;
-  } catch (_) {}
+  // Prefer the event snapshot. The deferred callback can run after a player
+  // changes hotbar slots, so falling back to their current slot alone can
+  // miss the item they actually used to interact.
+  let heldItem = itemBeforeInteraction || null;
+  if (!heldItem) {
+    try {
+      const inventory = player.getComponent("minecraft:inventory")?.container;
+      if (inventory) heldItem = inventory.getItem(player.selectedSlotIndex) || null;
+    } catch (_) {}
+  }
 
   device.onInteract(player, heldItem);
 }
 
 subscribeSafely("entity interactions", () => {
   world.afterEvents.playerInteractWithEntity.subscribe((event) => {
-    system.run(() => handleInteract(event.player, event.target));
+    system.run(() => handleInteract(event.player, event.target, event.beforeItemStack));
   });
 });
 

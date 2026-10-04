@@ -5,6 +5,49 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog 1.1](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-10-04
+
+Repair and playability release based on the reported Bedrock 26.2 hosted-multiplayer
+scenario. Existing identifiers, pack UUIDs, save keys, recipes, and balance are
+preserved. The declared minimum engine/API remain unchanged; the shipped packs
+continue to use stable `@minecraft/server` 1.17.0 without Beta APIs.
+
+### Fixed
+
+- **Interaction prompt and feedback.** Custom devices now use a localized
+  `Use / Rescue` touch-screen action, explicitly target player interactions,
+  and avoid unnecessary swing animations. Empty-hand use explains automatic
+  player/mob capture and reinforcement; captives receive clear self-rescue
+  feedback. The stable interaction event uses the item snapshot from before
+  the interaction and still verifies the selected inventory slot before
+  consuming reinforcement.
+- **Block texture loading.** All five terrain atlas entries pointed at
+  `textures/blocks/cc_...png`, but the tracked images are named
+  `textures/blocks/...png`; atlas paths now match the actual files.
+- **UV/texture atlas bounds.** Entity box-UV layouts exceeded the declared
+  32-texel texture width, and several models declared a texture height that did
+  not match the PNG. Entity material textures now have 64-texel-wide atlases
+  (64×64, 64×32, 64×48, 64×64, and 64×16); the five block material textures
+  and block geometries use consistent 64×64 tiled atlases. Geometry dimensions
+  match their images, every legacy box-UV net stays within its atlas, and the
+  Black Reliquary door UV was moved up three texels to fit its 64-pixel height.
+  This avoids out-of-range UVs being wrapped/clamped into visible texture patches.
+- **Inventory icons.** Replaced the five colored-bar placeholders with
+  individual transparent pixel-art silhouettes.
+
+### Validation
+
+- Added interaction-event regression coverage for idle guidance/throttling,
+  reinforcement item consumption, and teammate rescue; the device unit test
+  pins the self-rescue refusal behavior.
+- Hardened the build validator to resolve atlas texture files, compare model
+  texture dimensions to source PNGs, and verify localized interaction prompts
+  and their entity events.
+- Automated tests, stable API type check, source-reference validation, and
+  `.mcaddon` archive checks are required before packaging. Live Bedrock 26.2
+  rendering, touch input, Realm propagation, and multiplayer remain a manual
+  test gate; no in-engine pass is claimed here.
+
 ## [0.1.1] - 2026-10-03
 
 Bug-fix, audit, and polish patch. Save format, UUIDs, `@minecraft/server` 1.17.0

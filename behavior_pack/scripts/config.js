@@ -16,6 +16,7 @@ export const CONFIG = {
     pollIntervalTicks: 5,
     idlePollIntervalTicks: 20,
     redstonePollIntervalTicks: 10,
+    interactionFeedbackCooldownTicks: 40,
     maxActiveDevices: 32,
     entityScanRadius: 8,
     maxParticlesPerEvent: 8,

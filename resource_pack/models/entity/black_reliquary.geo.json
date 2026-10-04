@@ -4,8 +4,8 @@
     {
       "description": {
         "identifier": "geometry.cc_black_reliquary",
-        "texture_width": 32,
-        "texture_height": 32,
+        "texture_width": 64,
+        "texture_height": 64,
         "visible_bounds_width": 2.5,
         "visible_bounds_height": 3.5,
         "visible_bounds_offset": [0, 1.75, 0]
@@ -69,7 +69,7 @@
             {
               "origin": [-8, 3, -8],
               "size": [16, 22, 2],
-              "uv": [0, 43]
+              "uv": [0, 40]
             }
           ]
         },

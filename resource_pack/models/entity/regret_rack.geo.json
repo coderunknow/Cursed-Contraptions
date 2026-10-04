@@ -4,8 +4,8 @@
     {
       "description": {
         "identifier": "geometry.cc_regret_rack",
-        "texture_width": 32,
-        "texture_height": 32,
+        "texture_width": 64,
+        "texture_height": 16,
         "visible_bounds_width": 3,
         "visible_bounds_height": 1.5,
         "visible_bounds_offset": [0, 0.75, 0]

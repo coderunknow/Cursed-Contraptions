@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BP = ROOT / "behavior_pack"
 RP = ROOT / "resource_pack"
-RELEASE_VERSION = [0, 1, 1]
+RELEASE_VERSION = [0, 1, 2]
 MIN_ENGINE_VERSION = [1, 21, 60]
 SERVER_API_VERSION = "1.17.0"
 EXPECTED_PACKAGES = {
@@ -49,7 +49,33 @@ def load_json(path: Path) -> dict | None:
 
 
 def asset_path_from_texture(texture: str) -> Path:
-    return RP / f"{texture.removesuffix('.png')}.png"
+    normalized = str(texture).removesuffix(".png").lstrip("/")
+    return RP / f"{normalized}.png"
+
+
+def texture_paths_from_reference(reference: object) -> list[str]:
+    """Return texture paths from the string/object/list shapes used by atlases."""
+    if isinstance(reference, str):
+        return [reference]
+    if isinstance(reference, list):
+        return [path for value in reference for path in texture_paths_from_reference(value)]
+    if isinstance(reference, dict):
+        paths: list[str] = []
+        for key in ("textures", "path"):
+            if key in reference:
+                paths.extend(texture_paths_from_reference(reference[key]))
+        return paths
+    return []
+
+
+def read_png_dimensions(path: Path) -> tuple[int, int] | None:
+    try:
+        header = path.read_bytes()[:24]
+        if len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n":
+            return None
+        return struct.unpack(">II", header[16:24])
+    except (OSError, struct.error):
+        return None
 
 
 def validate_uuid(value: object, label: str, seen: set[str]) -> None:
@@ -67,9 +93,15 @@ def validate_manifests() -> tuple[dict | None, dict | None]:
     bp = load_json(BP / "manifest.json")
     rp = load_json(RP / "manifest.json")
     package = load_json(ROOT / "package.json")
+    lockfile = load_json(ROOT / "package-lock.json")
     release_version = ".".join(map(str, RELEASE_VERSION))
     if package and package.get("version") != release_version:
         report_error(f"package.json must be version {release_version}")
+    if lockfile and (
+        lockfile.get("version") != release_version
+        or lockfile.get("packages", {}).get("", {}).get("version") != release_version
+    ):
+        report_error(f"package-lock.json root versions must be {release_version}")
     seen_uuids: set[str] = set()
 
     for name, pack, expected_module_type in (
@@ -83,7 +115,7 @@ def validate_manifests() -> tuple[dict | None, dict | None]:
         if not header.get("name"):
             report_error(f"{name} manifest has no header name")
         if header.get("version") != RELEASE_VERSION:
-            report_error(f"{name} manifest must be version 0.1.1")
+            report_error(f"{name} manifest must be version 0.1.2")
         if header.get("min_engine_version") != MIN_ENGINE_VERSION:
             report_error(f"{name} minimum engine version must be 1.21.60")
 
@@ -94,7 +126,7 @@ def validate_manifests() -> tuple[dict | None, dict | None]:
         for index, module in enumerate(modules):
             validate_uuid(module.get("uuid"), f"{name} module[{index}]", seen_uuids)
             if module.get("version") != RELEASE_VERSION:
-                report_error(f"{name} module[{index}] must be version 0.1.1")
+                report_error(f"{name} module[{index}] must be version 0.1.2")
             entry = module.get("entry")
             if entry:
                 entry_path = pack_root(name) / entry
@@ -107,7 +139,7 @@ def validate_manifests() -> tuple[dict | None, dict | None]:
         if len(pack_dependencies) != 1:
             report_error("behavior pack must depend on exactly one resource pack UUID")
         elif pack_dependencies[0].get("uuid") != resource_uuid or pack_dependencies[0].get("version") != RELEASE_VERSION:
-            report_error("behavior pack resource dependency UUID/version does not match resource pack v0.1.1")
+            report_error("behavior pack resource dependency UUID/version does not match resource pack v0.1.2")
 
         server_dependencies = [
             dependency for dependency in bp.get("dependencies", [])
@@ -258,8 +290,21 @@ def validate_pack_references() -> tuple[int, int, int, int]:
 
     terrain = json_data.get(RP / "textures" / "terrain_texture.json") or load_json(RP / "textures" / "terrain_texture.json") or {}
     item_atlas = json_data.get(RP / "textures" / "item_texture.json") or load_json(RP / "textures" / "item_texture.json") or {}
-    terrain_aliases = set(terrain.get("texture_data", {}))
-    item_aliases = set(item_atlas.get("texture_data", {}))
+    terrain_data = terrain.get("texture_data", {})
+    item_data = item_atlas.get("texture_data", {})
+    terrain_aliases = set(terrain_data)
+    item_aliases = set(item_data)
+
+    for atlas_name, entries in (("terrain", terrain_data), ("item", item_data)):
+        for alias, entry in entries.items():
+            texture_paths = texture_paths_from_reference(entry)
+            if not texture_paths:
+                report_error(f"{atlas_name.title()} atlas alias {alias} has no texture path")
+                continue
+            for texture in texture_paths:
+                texture_file = asset_path_from_texture(texture)
+                if not texture_file.is_file():
+                    report_error(f"{atlas_name.title()} atlas alias {alias} references missing PNG {texture_file.relative_to(ROOT)}")
 
     for path in block_ids.values():
         block = (json_data.get(path) or {}).get("minecraft:block", {})
@@ -275,13 +320,45 @@ def validate_pack_references() -> tuple[int, int, int, int]:
         if not data:
             continue
         for geometry in data.get("minecraft:geometry", []):
-            identifier = geometry.get("description", {}).get("identifier")
+            description = geometry.get("description", {})
+            identifier = description.get("identifier")
             if not identifier:
                 report_error(f"Geometry has no identifier: {path.relative_to(ROOT)}")
             elif identifier in geometry_by_id:
                 report_error(f"Duplicate geometry identifier: {identifier}")
             else:
                 geometry_by_id[identifier] = geometry
+
+            texture_width = description.get("texture_width")
+            texture_height = description.get("texture_height")
+            if not isinstance(texture_width, int) or texture_width < 1 or not isinstance(texture_height, int) or texture_height < 1:
+                report_error(f"Geometry {identifier or path.name} has invalid texture dimensions {texture_width}x{texture_height}")
+                continue
+
+            # Legacy two-number cube UVs use the standard Bedrock box unwrap:
+            # U span = 2 * (x + z), V span = y + z. Catch out-of-atlas UVs
+            # before they turn into wrapped/clamped texture patches in-game.
+            for bone in geometry.get("bones", []):
+                for cube in bone.get("cubes", []):
+                    uv = cube.get("uv")
+                    size = cube.get("size")
+                    if not (
+                        isinstance(uv, list) and len(uv) == 2
+                        and isinstance(size, list) and len(size) == 3
+                        and all(isinstance(value, (int, float)) for value in [*uv, *size])
+                    ):
+                        continue
+                    u, v = uv
+                    size_x, size_y, size_z = size
+                    if (
+                        u < 0 or v < 0
+                        or u + 2 * (size_x + size_z) > texture_width
+                        or v + size_y + size_z > texture_height
+                    ):
+                        report_error(
+                            f"Geometry {identifier or path.name} bone {bone.get('name')} has box UV {uv} "
+                            f"for size {size} outside its {texture_width}x{texture_height} texture"
+                        )
 
     for path in sorted((RP / "animations").glob("*.animation.json")):
         data = json_data.get(path) or load_json(path)
@@ -319,10 +396,13 @@ def validate_pack_references() -> tuple[int, int, int, int]:
 
     for path, description in rp_entities.values():
         texture_refs = description.get("textures", {}).values()
-        for texture in texture_refs:
-            texture_file = asset_path_from_texture(texture)
-            if not texture_file.is_file():
-                report_error(f"Client entity {path.name} references missing texture {texture}")
+        texture_files: list[Path] = []
+        for texture_reference in texture_refs:
+            for texture in texture_paths_from_reference(texture_reference):
+                texture_file = asset_path_from_texture(texture)
+                texture_files.append(texture_file)
+                if not texture_file.is_file():
+                    report_error(f"Client entity {path.name} references missing texture {texture}")
 
         geometry_refs = description.get("geometry", {}).values()
         for geometry_id in geometry_refs:
@@ -330,6 +410,18 @@ def validate_pack_references() -> tuple[int, int, int, int]:
             if not geometry:
                 report_error(f"Client entity {path.name} references undefined geometry {geometry_id}")
                 continue
+            description_data = geometry.get("description", {})
+            declared_dimensions = (
+                description_data.get("texture_width"),
+                description_data.get("texture_height"),
+            )
+            for texture_file in texture_files:
+                actual_dimensions = read_png_dimensions(texture_file)
+                if actual_dimensions and declared_dimensions != actual_dimensions:
+                    report_error(
+                        f"Geometry {geometry_id} declares texture size {declared_dimensions}, "
+                        f"but {texture_file.relative_to(ROOT)} is {actual_dimensions}"
+                    )
             bone_names = {bone.get("name") for bone in geometry.get("bones", [])}
             for alias, animation_id in description.get("animations", {}).items():
                 if alias == "controller":
@@ -375,6 +467,38 @@ def validate_pack_references() -> tuple[int, int, int, int]:
             report_error(f"Resource block registry has no behavior block {identifier}")
         if definition.get("textures") not in terrain_aliases:
             report_error(f"Resource block registry {identifier} references missing texture alias {definition.get('textures')}")
+
+        behavior_path = block_ids.get(identifier)
+        if not behavior_path:
+            continue
+        block = (json_data.get(behavior_path) or {}).get("minecraft:block", {})
+        components = block.get("components", {})
+        geometry_id = components.get("minecraft:geometry")
+        geometry = geometry_by_id.get(geometry_id)
+        if not geometry:
+            continue
+        declared_dimensions = (
+            geometry.get("description", {}).get("texture_width"),
+            geometry.get("description", {}).get("texture_height"),
+        )
+        material_instances = components.get("minecraft:material_instances", {})
+        aliases = {
+            instance.get("texture")
+            for instance in material_instances.values()
+            if isinstance(instance, dict) and instance.get("texture")
+        }
+        aliases.add(definition.get("textures"))
+        for alias in aliases:
+            if alias not in terrain_data:
+                continue
+            for texture in texture_paths_from_reference(terrain_data[alias]):
+                texture_file = asset_path_from_texture(texture)
+                actual_dimensions = read_png_dimensions(texture_file)
+                if actual_dimensions and declared_dimensions != actual_dimensions:
+                    report_error(
+                        f"Block geometry {geometry_id} declares texture size {declared_dimensions}, "
+                        f"but terrain alias {alias} resolves to {actual_dimensions}"
+                    )
     if set(block_registry) != set(block_ids):
         report_error("Behavior block identifiers and resource block registry identifiers differ")
 
@@ -401,9 +525,24 @@ def validate_pack_references() -> tuple[int, int, int, int]:
     for identifier in block_ids:
         if f"tile.{identifier}.name" not in language_entries:
             report_error(f"Missing localized block name for {identifier}")
-    for identifier in bp_entities:
+    for identifier, path in bp_entities.items():
         if f"entity.{identifier}.name" not in language_entries:
             report_error(f"Missing localized entity name for {identifier}")
+
+        entity_data = (json_data.get(path) or {}).get("minecraft:entity", {})
+        components = entity_data.get("components", {})
+        interaction_component = components.get("minecraft:interact", {})
+        interactions = interaction_component.get("interactions", [])
+        if not interactions:
+            report_error(f"Behavior entity {identifier} has no minecraft:interact entries")
+        for index, interaction in enumerate(interactions):
+            prompt = interaction.get("interact_text")
+            if not prompt or prompt not in language_entries:
+                report_error(f"Behavior entity {identifier} interaction[{index}] has no localized prompt {prompt!r}")
+            on_interact = interaction.get("on_interact", {})
+            event_name = on_interact.get("event") if isinstance(on_interact, dict) else on_interact
+            if not event_name or event_name not in entity_data.get("events", {}):
+                report_error(f"Behavior entity {identifier} interaction[{index}] references undefined event {event_name!r}")
 
     recipe_count = 0
     for path in sorted((BP / "recipes").glob("*.json")):

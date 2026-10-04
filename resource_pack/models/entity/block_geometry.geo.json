@@ -4,8 +4,8 @@
     {
       "description": {
         "identifier": "geometry.cc_iron_maiden_block",
-        "texture_width": 16,
-        "texture_height": 16,
+        "texture_width": 64,
+        "texture_height": 64,
         "visible_bounds_width": 1,
         "visible_bounds_height": 2,
         "visible_bounds_offset": [0, 1, 0]
@@ -23,8 +23,8 @@
     {
       "description": {
         "identifier": "geometry.cc_cursed_stocks_block",
-        "texture_width": 16,
-        "texture_height": 16,
+        "texture_width": 64,
+        "texture_height": 64,
         "visible_bounds_width": 1,
         "visible_bounds_height": 1,
         "visible_bounds_offset": [0, 0.5, 0]
@@ -42,8 +42,8 @@
     {
       "description": {
         "identifier": "geometry.cc_gravebinder_cage_block",
-        "texture_width": 16,
-        "texture_height": 16,
+        "texture_width": 64,
+        "texture_height": 64,
         "visible_bounds_width": 1,
         "visible_bounds_height": 2,
         "visible_bounds_offset": [0, 1, 0]
@@ -61,8 +61,8 @@
     {
       "description": {
         "identifier": "geometry.cc_regret_rack_block",
-        "texture_width": 16,
-        "texture_height": 16,
+        "texture_width": 64,
+        "texture_height": 64,
         "visible_bounds_width": 1,
         "visible_bounds_height": 1,
         "visible_bounds_offset": [0, 0.5, 0]
@@ -80,8 +80,8 @@
     {
       "description": {
         "identifier": "geometry.cc_black_reliquary_block",
-        "texture_width": 16,
-        "texture_height": 16,
+        "texture_width": 64,
+        "texture_height": 64,
         "visible_bounds_width": 1,
         "visible_bounds_height": 2,
         "visible_bounds_offset": [0, 1, 0]

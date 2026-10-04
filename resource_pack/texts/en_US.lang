@@ -16,5 +16,7 @@ entity.cc:gravebinder_cage.name=Gravebinder Cage
 entity.cc:regret_rack.name=The Regret Rack
 entity.cc:black_reliquary.name=The Black Reliquary
 
+action.interact.cursed_contraptions=Use / Rescue
+
 pack.name=Cursed Contraptions
 pack.description=Medieval torture contraptions for chaotic multiplayer fun

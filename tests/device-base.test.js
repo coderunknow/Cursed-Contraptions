@@ -181,6 +181,9 @@ test("capture reserves one target, disables movement, and rescue restores it", (
   assert.equal(victim.hasTag("cc:trapped"), true);
   assert.equal(victim.inputPermissions.movement, false);
   assert.equal(victim.getDynamicProperty("cc:movement_was_enabled"), true);
+  assert.equal(device.onInteract(victim, null), false);
+  assert.match(victim.messages.at(-1), /cannot free yourself/);
+  assert.equal(device.stateMachine.state, "capturing");
 
   assert.equal(device.release(), true);
   assert.equal(device.stateMachine.state, "opening");

@@ -72,6 +72,7 @@ export const system = {
   afterEvents: {
     scriptEventReceive: new MockEventSignal(),
   },
+  get currentTick() { return currentTick; },
   run(callback) { return this.runTimeout(callback, 1); },
   runTimeout(callback, ticks) {
     const handle = nextHandle++;
