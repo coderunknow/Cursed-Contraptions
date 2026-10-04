@@ -18,7 +18,6 @@ export const CONFIG = {
     redstonePollIntervalTicks: 10,
     interactionFeedbackCooldownTicks: 30,
     maxActiveDevices: 32,
-    entityScanRadius: 8,
     maxParticlesPerEvent: 8,
     chunkLoadGracePeriod: 40,
   },
@@ -62,12 +61,12 @@ export const CONFIG = {
     seatRefreshTicks: 20,
   },
 
-  /** Idle "the captive is struggling" rattle overlays. */
+  /** "The captive is struggling" rattle overlays. */
   struggle: {
     enabled: true,
     minIntervalTicks: 120,
     maxIntervalTicks: 320,
-    /** Radius a capturable victim must be within to be considered "occupied". */
+    /** How long a strain/rattle overlay plays, in ticks. */
     strainDurationTicks: 12,
   },
 
@@ -75,8 +74,6 @@ export const CONFIG = {
     closedPauseTicks: 10,
     releaseAnimationTicks: 30,
     brokenAnimationTicks: 30,
-    /** A captive can be freed by knocking the device apart after this delay. */
-    breakGraceTicks: 0,
   },
 
   particles: {
@@ -86,8 +83,6 @@ export const CONFIG = {
     sparkCount: 2,
     /** Extra burst when a device closes on a victim. */
     captureBurstCount: 6,
-    /** Ambient burst every torture cycle. */
-    tortureBurstCount: 3,
   },
 
   vignette: {

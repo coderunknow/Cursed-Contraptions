@@ -20,6 +20,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE / "devices"))
 
+import zlib
+
 from anim import write_animations  # noqa: E402
 from model import bake_atlas, face_pixel_size, pack_faces, write_geometry  # noqa: E402
 from canvas import Painter, Rect, rgba  # noqa: E402
@@ -275,7 +277,10 @@ def write_devices() -> list[DeviceArt]:
         art = module.build()
         built.append(art)
 
-        atlas, uv_map = bake_atlas(art.model, seed=abs(hash(module_name)) % 9973)
+        # Deterministic per-device seed: Python's str hash is salted per process,
+        # so using it here made every rebuild produce slightly different art.
+        seed = zlib.crc32(module_name.encode("utf-8")) % 9973
+        atlas, uv_map = bake_atlas(art.model, seed=seed)
         atlas_path = RP / "textures" / "entity" / f"{art.slug}.png"
         atlas_path.parent.mkdir(parents=True, exist_ok=True)
         atlas.save(atlas_path)
