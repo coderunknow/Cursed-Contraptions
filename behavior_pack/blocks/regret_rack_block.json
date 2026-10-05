@@ -5,7 +5,7 @@
       "identifier": "cc:regret_rack_block",
       "menu_category": {
         "category": "items",
-        "group": "itemGroup.name.miscellaneous"
+        "group": "cc:itemGroup.name.devices"
       }
     },
     "components": {

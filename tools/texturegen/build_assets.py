@@ -58,6 +58,24 @@ from pipeline import (  # noqa: E402
 BP = ROOT / "behavior_pack"
 RP = ROOT / "resource_pack"
 
+# Creative-menu registration.
+#
+# A custom item only appears in the creative inventory when its
+# ``description.menu_category`` is valid, and since Bedrock 26.x the optional
+# ``group`` value must be namespaced: the schema requires it to match
+# ``<namespace>:<name>``. v0.1.0-v0.1.4 shipped the un-namespaced
+# ``itemGroup.name.miscellaneous``, which the game rejects, so every item and
+# anchor block was silently left out of the creative menu and the add-on looked
+# like it had no content at all. The group is now a real, namespaced group that
+# the item catalog below defines (name, icon, contents), so the two files cannot
+# disagree.
+CREATIVE_CATEGORY = "items"
+CREATIVE_GROUP = "cc:itemGroup.name.devices"
+CREATIVE_GROUP_NAME_KEY = CREATIVE_GROUP
+# The item catalog shipped by the game since 1.21.60; the same version as this
+# pack's min_engine_version, so every world that can load the pack can read it.
+CREATIVE_CATALOG_FORMAT_VERSION = "1.21.60"
+
 DEVICE_MODULES = (
     "iron_maiden",
     "cursed_stocks",
@@ -333,7 +351,7 @@ def write_devices() -> list[DeviceArt]:
                 "minecraft:block": {
                     "description": {
                         "identifier": f"cc:{art.slug}_block",
-                        "menu_category": {"category": "items", "group": "itemGroup.name.miscellaneous"},
+                        "menu_category": {"category": CREATIVE_CATEGORY, "group": CREATIVE_GROUP},
                     },
                     "components": {
                         "minecraft:destructible_by_mining": {"seconds_to_destroy": 1.0},
@@ -360,7 +378,7 @@ def write_devices() -> list[DeviceArt]:
                 "minecraft:item": {
                     "description": {
                         "identifier": f"cc:item_{art.slug}",
-                        "menu_category": {"category": "items", "group": "itemGroup.name.miscellaneous"},
+                        "menu_category": {"category": CREATIVE_CATEGORY, "group": CREATIVE_GROUP},
                     },
                     "components": {
                         "minecraft:display_name": {"value": f"item.cc:item_{art.slug}.name"},
@@ -612,6 +630,8 @@ def write_language() -> None:
     lines.extend(
         [
             "",
+            f"{CREATIVE_GROUP_NAME_KEY}=Cursed Contraptions (Devices)",
+            "",
             "action.cc.use_device=Inspect / Repair / Reinforce",
             "action.cc.rescue_captive=Use / Rescue",
             "",
@@ -621,6 +641,45 @@ def write_language() -> None:
         ]
     )
     (RP / "texts" / "en_US.lang").write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_item_catalog() -> None:
+    """Register the pack's items and anchor blocks in the creative menu.
+
+    The crafting item catalog is the game's own way of defining creative groups.
+    It supplies the group's display name (a localization key) and its icon, and
+    lists the items that belong to it. ``menu_category.group`` in the item and
+    block files references exactly this group name, so the catalog and the
+    definitions agree and the game does not log a "group changed" warning.
+    """
+    entries = []
+    for slug in DEVICE_MODULES:
+        entries.append(f"cc:item_{slug}")
+    for slug in DEVICE_MODULES:
+        entries.append(f"cc:{slug}_block")
+
+    write_json(
+        BP / "item_catalog" / "crafting_item_catalog.json",
+        {
+            "format_version": CREATIVE_CATALOG_FORMAT_VERSION,
+            "minecraft:crafting_items_catalog": {
+                "categories": [
+                    {
+                        "category_name": CREATIVE_CATEGORY,
+                        "groups": [
+                            {
+                                "group_identifier": {
+                                    "icon": "cc:item_iron_maiden",
+                                    "name": CREATIVE_GROUP,
+                                },
+                                "items": entries,
+                            }
+                        ],
+                    }
+                ],
+            },
+        },
+    )
 
 
 def verify(arts: list[DeviceArt]) -> list[str]:
@@ -779,6 +838,7 @@ def main() -> int:
     write_item_textures()
     write_block_registry_and_atlas()
     write_language()
+    write_item_catalog()
     remove_stale_outputs()
 
     problems = verify(arts)

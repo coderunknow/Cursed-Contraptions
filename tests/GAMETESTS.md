@@ -175,3 +175,14 @@ treating the v0.1.4 feature set as verified.
     able to move immediately and no device should still list you as its captive
     (`/scriptevent cc:devices`). Repeat with a disconnect during the closed
     animation and a rejoin.
+
+## 7. v0.1.5 spot-checks (creative-menu registration)
+
+1. Enable both packs in a world and open the creative inventory. The five
+   devices (and their five placeholder anchor blocks) must appear under
+   **Items → Cursed Contraptions (Devices)**, with icons and names. Searching
+   for "Iron Maiden" must also find it.
+2. Confirm the Content Log shows no `menu_category`/item-group error on world
+   load. If the items are missing, run `/give @s cc:item_iron_maiden`: an
+   unknown item means the behavior pack is off, a missing icon means the
+   resource pack is off.

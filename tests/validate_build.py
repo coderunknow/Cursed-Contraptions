@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BP = ROOT / "behavior_pack"
 RP = ROOT / "resource_pack"
-RELEASE_VERSION = [0, 1, 4]
+RELEASE_VERSION = [0, 1, 5]
 MIN_ENGINE_VERSION = [1, 21, 60]
 SERVER_API_VERSION = "1.17.0"
 EXPECTED_PACKAGES = {
@@ -24,6 +24,12 @@ EXPECTED_PACKAGES = {
     "Cursed-Contraptions_RP.mcpack": RP / "manifest.json",
 }
 UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+# Creative-menu placement rules. "none" hides an item from the creative
+# inventory entirely, so it is deliberately not accepted here: this pack's items
+# exist to be seen and placed.
+CREATIVE_CATEGORIES = {"construction", "equipment", "items", "nature"}
+NAMESPACED_IDENTIFIER = re.compile(r"^[A-Za-z0-9_.]+:[A-Za-z0-9_.]+$")
+ITEM_CATALOG = BP / "item_catalog" / "crafting_item_catalog.json"
 
 errors: list[str] = []
 json_data: dict[Path, dict] = {}
@@ -227,6 +233,75 @@ def validate_scripts(bp_manifest: dict | None) -> int:
     return len(scripts)
 
 
+def validate_item_catalog(menu_categories: dict[str, tuple[Path, dict]]) -> tuple[dict[str, list[str]], set[str]]:
+    """Check the creative item catalog and return its groups and item lists.
+
+    The catalog is what defines the pack's creative group (its icon and its
+    localized hover name), so ``menu_category.group`` has a real group to point
+    at instead of an un-namespaced name the game silently rejects.
+    """
+    print("\n=== Creative inventory registration ===")
+    data = json_data.get(ITEM_CATALOG) or load_json(ITEM_CATALOG)
+    if not data:
+        report_error(
+            f"Missing {ITEM_CATALOG.relative_to(ROOT)}: without it the pack's creative group "
+            "cannot be resolved and the devices never appear in the creative inventory"
+        )
+        return {}, set()
+
+    catalog = data.get("minecraft:crafting_items_catalog", {})
+    if not catalog:
+        report_error(f"{ITEM_CATALOG.name} has no minecraft:crafting_items_catalog block")
+        return {}, set()
+
+    groups: dict[str, list[str]] = {}
+    listed: set[str] = set()
+    for category in catalog.get("categories", []):
+        category_name = category.get("category_name")
+        if category_name not in CREATIVE_CATEGORIES:
+            report_error(f"{ITEM_CATALOG.name} declares unknown creative category {category_name!r}")
+        for group in category.get("groups", []):
+            identifier = group.get("group_identifier") or {}
+            name = identifier.get("name")
+            items = group.get("items", [])
+            if not name:
+                report_error(f"{ITEM_CATALOG.name} has a group without a group_identifier name")
+                continue
+            if not NAMESPACED_IDENTIFIER.fullmatch(str(name)):
+                report_error(
+                    f"{ITEM_CATALOG.name} group name {name!r} is not namespaced; "
+                    "menu_category.group must be <namespace>:<name>"
+                )
+            if name in groups:
+                report_error(f"{ITEM_CATALOG.name} defines creative group {name} twice")
+            groups[name] = list(items)
+            listed.update(items)
+            icon = identifier.get("icon")
+            if icon and icon not in menu_categories:
+                report_error(f"{ITEM_CATALOG.name} group {name} uses unknown icon {icon}")
+
+    for item in sorted(listed):
+        if item not in menu_categories:
+            report_error(f"{ITEM_CATALOG.name} lists {item}, which no item or block defines")
+
+    lang_file = RP / "texts" / "en_US.lang"
+    lang_text = lang_file.read_text(encoding="utf-8") if lang_file.is_file() else ""
+    for name in sorted(groups):
+        if f"{name}=" not in lang_text:
+            report_error(f"{lang_file.name} does not define the creative group name key {name}")
+
+    missing = sorted(identifier for identifier in menu_categories if identifier not in listed)
+    if missing and groups:
+        report_error(
+            f"{ITEM_CATALOG.name} does not list {len(missing)} declared item(s)/block(s): "
+            f"{', '.join(missing[:5])}"
+        )
+
+    if groups:
+        report_ok(f"Creative catalog defines {len(groups)} group(s) covering {len(listed)} entries")
+    return groups, listed
+
+
 def validate_pack_references() -> tuple[int, int, int, int]:
     print("\n=== Entity, block, item, texture, and animation references ===")
     bp_entities: dict[str, Path] = {}
@@ -271,31 +346,59 @@ def validate_pack_references() -> tuple[int, int, int, int]:
     else:
         report_ok(f"Matched {len(bp_entities)} behavior/resource entities")
 
-    for path in sorted((BP / "blocks").glob("*.json")):
-        data = json_data.get(path) or load_json(path)
-        if not data:
-            continue
-        block = data.get("minecraft:block", {})
-        identifier = block.get("description", {}).get("identifier")
-        if not identifier:
-            report_error(f"Block has no identifier: {path.relative_to(ROOT)}")
-            continue
-        if identifier in block_ids:
-            report_error(f"Duplicate block identifier: {identifier}")
-        block_ids[identifier] = path
+    # Creative-menu placement. A custom item or block only appears in the
+    # creative inventory when menu_category is valid: the category has to be one
+    # of the three visible tabs, and (since Bedrock 26.x) the optional group must
+    # be namespaced. v0.1.4 shipped the un-namespaced
+    # "itemGroup.name.miscellaneous", which the game rejects, so the add-on
+    # looked like it contained no items at all.
+    menu_categories: dict[str, tuple[Path, dict]] = {}
+    for state in ("block", "item"):
+        container = "minecraft:block" if state == "block" else "minecraft:item"
+        for path in sorted((BP / f"{state}s").glob("*.json")):
+            data = json_data.get(path) or load_json(path)
+            if not data:
+                continue
+            definition = data.get(container, {})
+            description = definition.get("description", {})
+            identifier = description.get("identifier")
+            if not identifier:
+                report_error(f"{state.capitalize()} has no identifier: {path.relative_to(ROOT)}")
+                continue
+            registry = block_ids if state == "block" else item_ids
+            if identifier in registry:
+                report_error(f"Duplicate {state} identifier: {identifier}")
+            registry[identifier] = path
+            menu_categories[identifier] = (path, description.get("menu_category") or {})
 
-    for path in sorted((BP / "items").glob("*.json")):
-        data = json_data.get(path) or load_json(path)
-        if not data:
+    catalog_groups, catalog_items = validate_item_catalog(menu_categories)
+
+    for identifier, (path, menu_category) in menu_categories.items():
+        category = menu_category.get("category")
+        if category not in CREATIVE_CATEGORIES:
+            report_error(
+                f"{path.name} ({identifier}) has menu_category category {category!r}; "
+                f"creative placement needs one of {sorted(CREATIVE_CATEGORIES)}"
+            )
+        group = menu_category.get("group")
+        if group is None:
             continue
-        item = data.get("minecraft:item", {})
-        identifier = item.get("description", {}).get("identifier")
-        if not identifier:
-            report_error(f"Item has no identifier: {path.relative_to(ROOT)}")
+        if not isinstance(group, str) or not re.fullmatch(NAMESPACED_IDENTIFIER, group):
+            report_error(
+                f"{path.name} ({identifier}) has menu_category group {group!r}; "
+                "the group must be namespaced as <namespace>:<name>"
+            )
             continue
-        if identifier in item_ids:
-            report_error(f"Duplicate item identifier: {identifier}")
-        item_ids[identifier] = path
+        if group not in catalog_groups:
+            report_error(
+                f"{path.name} ({identifier}) references creative group {group}, "
+                "which the item catalog does not define"
+            )
+        elif identifier not in catalog_groups[group]:
+            report_error(
+                f"{path.name} ({identifier}) declares creative group {group} "
+                "but the item catalog does not list it in that group"
+            )
 
     terrain = json_data.get(RP / "textures" / "terrain_texture.json") or load_json(RP / "textures" / "terrain_texture.json") or {}
     item_atlas = json_data.get(RP / "textures" / "item_texture.json") or load_json(RP / "textures" / "item_texture.json") or {}

@@ -2,7 +2,7 @@
 
 **Five animated, placeable trap devices for Minecraft Bedrock multiplayer.**
 
-Release **v0.1.4** · Declared minimum engine version **1.21.60**; prepared for the reported **Bedrock 26.2 multiplayer test**. Uses stable `@minecraft/server` 1.17.0; no Beta APIs toggle is required. Worlds created with v0.1.0–v0.1.3 keep their devices, captives, durability, and reinforcements.
+Release **v0.1.5** · Declared minimum engine version **1.21.60**; prepared for the reported **Bedrock 26.2 multiplayer test**. Uses stable `@minecraft/server` 1.17.0; no Beta APIs toggle is required. Worlds created with v0.1.0–v0.1.4 keep their devices, captives, durability, and reinforcements.
 
 ## Features
 
@@ -30,8 +30,13 @@ Release **v0.1.4** · Declared minimum engine version **1.21.60**; prepared for 
 ## Install
 
 1. Download and import `Cursed-Contraptions.mcaddon` into Bedrock Edition.
-2. Enable both **Cursed Contraptions** packs in world settings.
-3. Cheats are optional; use the recipes below for survival, or `/give @s cc:item_iron_maiden` (replace the item ID for another device).
+2. Enable **both** packs in world settings — the behavior pack **and** the
+   resource pack. Enabling only one of them is the most common reason an add-on
+   looks empty.
+3. Find the devices in the creative inventory under **Items → Cursed
+   Contraptions (Devices)** (or search for *Iron Maiden*). In survival, craft
+   them from the recipes below, or use `/give @s cc:item_iron_maiden` (replace
+   the item ID for another device).
 4. For a Realm, the owner should enable both packs on a copy of the world first; the shipped add-on uses stable APIs and does not require Beta APIs.
 
 For a dedicated server, extract the `.mcaddon` and install each contained `.mcpack` in the matching `behavior_packs/` and `resource_packs/` directories. Add both packs to the world pack lists and restart.
@@ -67,6 +72,22 @@ the meter in the action bar):
 | 4 | vents: one soul harvested and a surge strike at 1.5× the charged damage | `burst` |
 
 Charge decays while the device is empty, so a fresh victim always starts at step 0.
+
+## Troubleshooting
+
+**No devices in the creative inventory.** Check, in order:
+
+1. Both packs are enabled for the world (behavior *and* resource).
+2. The world was reloaded after enabling them; a world keeps its pack list, so
+   re-importing an add-on requires re-enabling the pack.
+3. Run `/give @s cc:item_iron_maiden` (cheats on). If the command reports an
+   unknown item, the **behavior pack** is not active; if the item arrives but
+   has no icon, the **resource pack** is not active.
+4. The devices are a creative group, not loose items: look under **Items →
+   Cursed Contraptions (Devices)**, or use the search box.
+5. Open **Settings → Creator → Content Log** and reload; a rejected content file
+   is reported there. `tests/validate_build.py` rejects an invalid creative group
+   in CI, and v0.1.5 fixed the one that shipped in v0.1.4.
 
 ## Devices and default balance
 
@@ -165,7 +186,9 @@ The automated suite checks JavaScript syntax, type conformance against the stabl
 - Devices are static fixtures: no gravity and no block collision, so they cannot sink through an
   unloaded floor or shove a captive out of its seat.
 - Device detection is local, idle checks are throttled, and the active-device ceiling is enforced.
-- Natural structure/world generation and structure loot are not implemented in v0.1.4.
+- Natural structure/world generation and structure loot are not implemented in v0.1.5.
+- Creative-menu placement is declared once, in `behavior_pack/item_catalog/crafting_item_catalog.json`,
+  and every item/block points at the group it defines; the pack validator keeps the two in sync.
 
 ## License
 
