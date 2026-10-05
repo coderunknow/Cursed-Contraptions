@@ -51,21 +51,13 @@ const STRAIN_TAG = "cc:anim_strain";
 const ANIMATION_STATES = Object.freeze(Object.values(DeviceState));
 
 /**
- * Entity events triggered on the behavior entity. These swap component
- * groups so the device hitbox keeps the captive clickable: the rescuer
- * must be able to aim at the frame, not at a captive hidden inside it.
+ * Entity events triggered on the behavior entity.
+ * v0.1.5 removed the seated/empty component-group swap (identical
+ * hitboxes — pure dead code) but these events remain no-ops for
+ * backwards compatibility with existing call sites.
  */
 const DEVICE_SEAT_EVENT = "cc:seat_victim";
 const DEVICE_CLEAR_EVENT = "cc:clear_victim";
-
-/** Mob containment: a stack of effects that pins every vanilla mob. */
-const MOB_EFFECTS = Object.freeze([
-  { id: "slowness", amplifierField: "mobFreezeAmplifier" },
-  { id: "jump_boost", amplifierField: "mobJumpAmplifier" },
-  { id: "mining_fatigue", amplifierField: "mobFatigueAmplifier" },
-  { id: "weakness", amplifierField: "mobWeaknessAmplifier" },
-  { id: "blindness", amplifierField: "mobBlindnessAmplifier" },
-]);
 
 // States in which a device holds a captive.
 const OCCUPIED_STATES = Object.freeze([
@@ -263,7 +255,7 @@ export class TortureDevice {
     if (this.stateMachine.state !== DeviceState.TORTURING || !this._victimEntity) return;
     this._seatVictim(this._victimEntity);
     this._setAnimationState("torturing");
-    this._applyMobEffects(this._victimEntity);
+    // No mob debuffs applied (v0.1.5 design: mobs keep normal behavior).
     this._startTortureCycle();
     this._saveState();
   }
@@ -480,7 +472,9 @@ export class TortureDevice {
 
     this._seatVictim(target);
     this._teleportToSeat(target);
-    this._applyMobEffects(target);
+    // v0.1.5: NO status-effect debuffs on mobs — per design intent, mobs
+    // retain full normal combat/movement behavior; containment is purely
+    // from position correction.
     this._saveState();
     this._setAnimationState("capturing");
     this._playSound("close");
@@ -599,7 +593,8 @@ export class TortureDevice {
     if (isExtreme && damage > 0) {
       this._notifyVictim(victim, "§cA critical spike pierces you!");
     }
-    this._applyMobEffects(victim);
+    // Per-design: NO weakness/blindness debuff on mobs. Weakness is applied
+    // only to players (see _applyDebuff) and only for the configured duration.
     this._applyDebuff(victim);
     this._triggerStruggle(CONFIG.struggle.strainDurationTicks, true);
     this.durability = this.durability - 1;
@@ -617,11 +612,16 @@ export class TortureDevice {
   /**
    * Keep the captive in the seat.
    *
-   * v0.1.3 teleported every five ticks and used Slowness VII (amplifier 6),
-   * which only slows mobs by ~85%. v0.1.5 uses a stack of effects that pins
-   * every vanilla mob (Slowness 25, Jump -128, Mining Fatigue V, Weakness IV,
-   * Blindness), and only teleports on a genuine escape — which keeps
-   * containment looking tight without the old "judder" stutter.
+   * v0.1.5 design: MOBS receive NO status effects. They retain full
+   * movement/combat behavior (walk, run, jump, climb, fly, attack, make
+   * noise). Containment is enforced purely by position correction: when a
+   * mob crosses the escape-limit threshold it is teleported back to the
+   * seat and a strain rattle plays. The wider drift window lets knockback
+   * from hits/explosions visibly shove captives around inside the device
+   * before the correction fires, and the cooldown prevents the old
+   * "judder" stutter from fighting the mob every tick.
+   *
+   * Players are still movement-input-locked.
    */
   _containVictim() {
     const victim = this._getVictim();
@@ -647,60 +647,83 @@ export class TortureDevice {
 
     const distance = Math.sqrt(this._distanceSquared(victim.location, seat));
     const isPlayer = victim.typeId === "minecraft:player";
+    const driftLimit = isPlayer
+      ? CONFIG.containment.playerDriftLimit
+      : CONFIG.containment.mobDriftLimit;
     const escapeLimit = isPlayer
       ? CONFIG.containment.playerDriftLimit
       : CONFIG.containment.mobEscapeLimit;
 
+    // Past the escape limit: pull back, rattle, and chip durability from
+    // the mob pushing the boundary. Cooldown prevents judder.
     if (distance > escapeLimit) {
       if (!Number.isFinite(now) || now - this._lastCorrectionTick >= CONFIG.containment.correctionCooldownTicks) {
         this._lastCorrectionTick = now;
         this._teleportToSeat(victim);
         this._triggerStruggle(CONFIG.struggle.strainDurationTicks, true);
+        // Mob effort against the boundary chips durability.
+        if (!isPlayer) this._applyStruggleChip(distance);
         Debug.info(this.typeId, `Captive drifted ${distance.toFixed(2)} blocks; reseated`);
       }
+      return;
+    }
+
+    // Within the "pressed against the frame" band (between drift and
+    // escape) the captive is actively pushing — trigger struggles and
+    // chip durability at a rate proportional to effort.
+    if (!isPlayer && distance > driftLimit) {
+      this._tickStruggle(distance);
+      this._applyStruggleChip(distance);
       return;
     }
 
     this._tickStruggle(distance);
   }
 
-  /** Re-assert the hold: effect durations tick down and can be dispelled. */
+  /**
+   * Chip one durability point when a mob is actively pushing against the
+   * frame. Probability scales with distance-from-seat so a mob right at
+   * the edge chips faster than one hovering near the center, but never
+   * chips durability faster than the normal 1/torture-cycle rate.
+   */
+  _applyStruggleChip(distance) {
+    if (this._disposed || !this.stateMachine.is(...OCCUPIED_STATES)) return;
+    if (this.durability <= 0) return;
+    const driftLimit = CONFIG.containment.mobDriftLimit;
+    // Effort factor: 0 at the drift edge, ~1 just outside the escape limit.
+    const effort = Math.max(0, Math.min(1, (distance - driftLimit) / 1.0));
+    const chance = CONFIG.containment.mobStruggleChipChance * effort
+      / (CONFIG.containment.seatRefreshTicks / 20);
+    if (Math.random() >= chance) return;
+    this.durability = this.durability - 1;
+    if (this.durability <= 0) {
+      this.break();
+    }
+  }
+
+  /**
+   * Re-assert the hold: for players this means re-locking movement input.
+   * Mobs receive NO debuffs per v0.1.5 design — they keep full normal
+   * behavior and containment comes purely from position correction.
+   */
   _refreshSeat(victim) {
     if (!isEntityValid(victim)) return;
     if (victim.typeId === "minecraft:player") {
       try {
         victim.inputPermissions.setPermissionCategory(InputPermissionCategory.Movement, false);
       } catch (_) {}
-      return;
     }
-    this._applyMobEffects(victim);
+    // Intentionally no-op for mobs: no effects to refresh.
   }
 
-  /**
-   * Apply the mob containment stack. Slowness 25+ pins the movement
-   * multiplier at zero in Bedrock; Jump -128 prevents jumps/spider climbs;
-   * Mining Fatigue V prevents attacks; Weakness IV keeps incidental
-   * knockback trivial; Blindness stops target tracking.
-   */
-  _applyMobEffects(victim) {
-    if (!isEntityValid(victim) || victim.typeId === "minecraft:player") return;
-    const duration = CONFIG.containment.mobFreezeDurationTicks;
-    for (const effect of MOB_EFFECTS) {
-      const amplifier = CONFIG.containment[effect.amplifierField];
-      try {
-        victim.addEffect(effect.id, duration, {
-          amplifier,
-          showParticles: false,
-        });
-      } catch (_) {}
-    }
+  // Intentionally empty: v0.1.5 does not apply status effects to mobs.
+  // Kept as a named method for readability; may be removed in a future pass.
+  _applyMobEffects(victim) { // eslint-disable-line no-unused-vars
+    // No effects applied. Mobs retain full movement/combat behavior.
   }
 
-  _clearMobEffects(victim) {
-    if (!isEntityValid(victim) || victim.typeId === "minecraft:player") return;
-    for (const effect of MOB_EFFECTS) {
-      try { victim.removeEffect(effect.id); } catch (_) {}
-    }
+  _clearMobEffects(victim) { // eslint-disable-line no-unused-vars
+    // No effects were applied, so nothing to clear.
   }
 
   /**
@@ -779,9 +802,9 @@ export class TortureDevice {
 
     if (victim.typeId === "minecraft:player") {
       this._lockVictimMovement(victim);
-    } else {
-      this._applyMobEffects(victim);
     }
+    // Mobs: no effect application. They keep normal behavior; containment
+    // is enforced by position correction in _containVictim.
 
     try { this.entity.triggerEvent(DEVICE_SEAT_EVENT); } catch (_) {}
   }
@@ -791,13 +814,10 @@ export class TortureDevice {
     this._clearStrain();
     this._nextStruggleTick = null;
 
-    if (isEntityValid(victim)) {
-      if (victim.typeId === "minecraft:player") {
-        this._restoreVictimMovement(victim);
-      } else {
-        this._clearMobEffects(victim);
-      }
+    if (isEntityValid(victim) && victim.typeId === "minecraft:player") {
+      this._restoreVictimMovement(victim);
     }
+    // Mobs: no effects to clear.
 
     try { this.entity.triggerEvent(DEVICE_CLEAR_EVENT); } catch (_) {}
   }
@@ -922,11 +942,16 @@ export class TortureDevice {
   }
 
   _applyDebuff(entity) {
-    if (!isEntityValid(entity) || entity.typeId === "minecraft:player") return;
-    // Per-device weakness is layered on top of the containment stack for mobs.
+    // v0.1.5 design: NO debuffs on mobs (they keep full combat/movement).
+    // Per-config weakness is applied to player captives for flavor only
+    // (player movement is already input-locked, so it is a cosmetic tick
+    // rather than a containment mechanic).
+    if (!isEntityValid(entity) || entity.typeId !== "minecraft:player") return;
+    const amplifier = this.config.weaknessAmplifier || 0;
+    if (amplifier <= 0) return;
     try {
       entity.addEffect("weakness", this.config.weaknessDuration, {
-        amplifier: CONFIG.containment.mobWeaknessAmplifier + (this.config.weaknessAmplifier || 0),
+        amplifier,
         showParticles: false,
       });
     } catch (_) {}

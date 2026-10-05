@@ -9,9 +9,10 @@ Release **v0.1.5** · Declared minimum engine version **1.21.60**. Uses stable `
 - Five craftable devices with distinct capture ranges, damage, cycle speeds, and durability;
   hand-painted RGBA art for every entity atlas, block face, and inventory icon.
 - Automatic proximity capture, a short escape window, and synchronized closing animations.
-- Captured players have movement disabled until rescued or released; mobs are held in place
-  with Slowness VII and Blindness and visibly struggle, without the tick-by-tick teleport
-  corrections that used to make them stutter.
+- Captured players have movement disabled until rescued or released; captured mobs retain
+  their normal movement, combat behavior, and sounds (they can walk, jump, attack, and
+  visibly struggle inside the device) but are kept inside the frame by position correction,
+  without the tick-by-tick teleport tug-of-war that used to make them stutter.
 - Nearby teammates can open an occupied device. Captured players cannot rescue themselves; the interaction prompt and feedback make available actions clearer.
 - Armor pieces reinforce an unoccupied device; interacting with an occupied device rescues first.
 - Redstone activation, persisted device state, breakable durability, and a single item drop on break.

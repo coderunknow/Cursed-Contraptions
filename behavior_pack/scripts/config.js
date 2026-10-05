@@ -43,41 +43,40 @@ export const CONFIG = {
   },
 
   /**
-   * Containment. Players are held by locked movement input; mobs are held by a
-   * high-amplifier Slowness plus effects that prevent attacking, jumping and
-   * targeting (v0.1.3 used Slowness VII, amplifier 6, which only reduces speed
-   * by ~85% so some mobs could still wander). Position corrections only happen
-   * on a real escape; ordinary drift never triggers a teleport.
+   * Containment.
+   *
+   * v0.1.5 design decision (confirmed by user): captured MOBS retain full
+   * normal behavior — they can walk, run, jump, climb, swim, fly, turn,
+   * attack, and make noise normally. No Slowness, Weakness, Blindness, or
+   * other debuffs are applied. Containment comes purely from physical
+   * position correction: when a mob leaves the containment zone it is
+   * teleported back to the seat with a rattle/strain animation.
+   *
+   * Players are still movement-locked via InputPermissions (different
+   * mechanism, same containment outcome). Wider drift windows preserve
+   * knockback feel (from hits, explosions, water) while still preventing
+   * escapes.
    */
   containment: {
     /** Distance past which a captive rattles the frame (blocks). */
-    mobDriftLimit: 0.9,
+    mobDriftLimit: 1.5,
     /** Distance a mob must reach before it is pulled back. */
-    mobEscapeLimit: 1.6,
-    /** Players may drift a little (knockback, water) before being pulled back. */
-    playerDriftLimit: 1.6,
+    mobEscapeLimit: 2.2,
+    /** Players may drift with knockback/water before being pulled back. */
+    playerDriftLimit: 2.2,
     /** Beyond this distance the captive has genuinely escaped and is freed. */
     leashRadius: 12,
-    /**
-     * Slowness amplifier. Amplifier >= 20 fully halts movement in Bedrock
-     * (the movement multiplier is clamped at zero). The v0.1.3 value of 6
-     * only slowed mobs by ~85% — they could still slowly claw out.
-     */
-    mobFreezeAmplifier: 25,
-    /** Prevents jumping so flying mobs and spiders cannot climb out. */
-    mobJumpAmplifier: 128,
-    /** Mining Fatigue V stops mobs swinging attacks / breaking blocks. */
-    mobFatigueAmplifier: 4,
-    /** Weakness keeps knockback and any residual attack trivial. */
-    mobWeaknessAmplifier: 3,
-    /** Blindness stops target tracking. */
-    mobBlindnessAmplifier: 0,
-    /** Effect duration; refreshed every seatRefreshTicks. */
-    mobFreezeDurationTicks: 60,
     /** Minimum ticks between corrections for the same captive. */
     correctionCooldownTicks: 20,
-    /** How often the hold on the captive is re-asserted. */
+    /** How often we check on the seated captive. */
     seatRefreshTicks: 20,
+    /**
+     * Chance (per second of active struggling) that a mob chips 1 durability
+     * off the device while pushing against the boundary — "depends on damage
+     * and effort, not strong/weak mobs." Higher when the mob is pressed
+     * against the edge, zero when standing calmly in the center.
+     */
+    mobStruggleChipChance: 0.35,
   },
 
   /** "The captive is struggling" rattle overlays. */

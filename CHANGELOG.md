@@ -17,14 +17,15 @@ reinforcement. No Beta APIs are used.
 
 ### Fixed
 
-- **Mob containment (root cause).** v0.1.3 held mobs with Slowness VII
-  (amplifier 6), which only slows mobs by ~85% — strong mobs (ravagers,
-  witches, vindicators, piglin brutes) could still claw their way out or
-  swing attacks at rescuers. The mob hold is now a five-effect stack:
-  Slowness 25 (movement multiplier clamped to zero in Bedrock), Jump Boost
-  -128 (stops jumps / spider-wall-climbs), Mining Fatigue V (stops attacks
-  and breaking), Weakness IV (trivialises any residual damage), and
-  Blindness (stops target tracking). Every vanilla mob stays pinned.
+- **Mob containment (root cause, revised after design review).** v0.1.3 held mobs with Slowness VII
+  (amplifier 6), which only slows mobs by ~85% — strong mobs could still claw out or swing at
+  rescuers. An initial v0.1.5 pass over-corrected by stacking five freeze effects; after design
+  review with the user that was reversed. v0.1.5 applies **no status-effect debuffs at all** to
+  captured mobs: they retain full normal movement, combat, jumping, climbing, flying, and sound
+  behavior. Containment is enforced purely by position correction with a wider drift window
+  (knockback from hits/explosions visibly shoves them around before a correction fires, with a
+  cooldown to prevent stutter) and mobs pushing against the boundary chip durability proportional
+  to effort. Players are still movement-input-locked (different mechanism, same outcome).
 - **Animation timing alignment.** The release and broken transitions used
   global tick constants while each device had a different client-side
   animation length — the Iron Maiden open was cut 0.5 s short, the Regret
