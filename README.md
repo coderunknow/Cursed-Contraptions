@@ -2,7 +2,7 @@
 
 **Five animated, placeable trap devices for Minecraft Bedrock multiplayer.**
 
-Release **v0.1.3** · Declared minimum engine version **1.21.60**; prepared for the reported **Bedrock 26.2 multiplayer test**. Uses stable `@minecraft/server` 1.17.0; no Beta APIs toggle is required.
+Release **v0.1.5** · Declared minimum engine version **1.21.60**. Uses stable `@minecraft/server` 1.17.0; no Beta APIs toggle is required.
 
 ## Features
 
@@ -39,7 +39,7 @@ Place a device item on a solid surface. It becomes an animated device entity; th
 - **Break:** Attack the device. It has its own durability counter; breaking it releases the captive and drops exactly one device item.
 - **Redstone:** Power an adjacent block to request an activation after the device's configured delay. Proximity capture remains enabled without redstone.
 
-Torture cycles heal the captive first, then apply damage capped to leave at least one health point. This keeps a normal cycle from instantly killing a full-health captive. Other hazards and player actions can still be dangerous; death releases the device.
+Torture cycles heal the captive first, then apply damage capped to leave at least one health point — so a normal cycle cannot kill. A rare extreme critical hit (per-device chance, roughly 3–10%) deals a flat 20 HP (10 hearts) spike that may finish a low-health captive outright, keeping the device unpredictable. Other hazards and player actions are still dangerous; death releases the device.
 
 ## Devices and default balance
 

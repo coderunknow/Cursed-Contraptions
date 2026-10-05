@@ -13,13 +13,20 @@ export const CONFIG = {
   },
 
   performance: {
-    pollIntervalTicks: 5,
-    idlePollIntervalTicks: 20,
-    redstonePollIntervalTicks: 10,
-    interactionFeedbackCooldownTicks: 30,
+    /** Active devices (capturing/closed/torturing/opening) tick every this many ticks. */
+    pollIntervalTicks: 4,
+    /** Idle devices (no captive) are scanned for new targets this often. */
+    idlePollIntervalTicks: 16,
+    /** Redstone power of adjacent blocks is polled this often. */
+    redstonePollIntervalTicks: 8,
+    /** Minimum ticks between per-player feedback messages to avoid spam. */
+    interactionFeedbackCooldownTicks: 25,
+    /** Cap on how many devices can be mid-cycle at once (placement is always allowed). */
     maxActiveDevices: 32,
-    maxParticlesPerEvent: 8,
-    chunkLoadGracePeriod: 40,
+    /** Particle cap per individual spawn event, per particle type. */
+    maxParticlesPerEvent: 10,
+    /** Grace ticks after a chunk load before we trust recovered state. */
+    chunkLoadGracePeriod: 30,
   },
 
   /**
@@ -36,25 +43,37 @@ export const CONFIG = {
   },
 
   /**
-   * Containment. Players are held by locked movement input; mobs are frozen
-   * with Slowness VII (movement multiplier reaches zero), which works on every
-   * vanilla mob and needs no custom entity definition. Teleporting the victim
-   * every tick is what made v0.1.2 look like the captive was stuttering, so
-   * position corrections now only happen on a real escape.
+   * Containment. Players are held by locked movement input; mobs are held by a
+   * high-amplifier Slowness plus effects that prevent attacking, jumping and
+   * targeting (v0.1.3 used Slowness VII, amplifier 6, which only reduces speed
+   * by ~85% so some mobs could still wander). Position corrections only happen
+   * on a real escape; ordinary drift never triggers a teleport.
    */
   containment: {
     /** Distance past which a captive rattles the frame (blocks). */
-    mobDriftLimit: 1.25,
+    mobDriftLimit: 0.9,
     /** Distance a mob must reach before it is pulled back. */
-    mobEscapeLimit: 2.5,
+    mobEscapeLimit: 1.6,
     /** Players may drift a little (knockback, water) before being pulled back. */
-    playerDriftLimit: 2.0,
+    playerDriftLimit: 1.6,
     /** Beyond this distance the captive has genuinely escaped and is freed. */
-    leashRadius: 16,
-    /** Amplifier 6 = Slowness VII, which pins movement at zero. */
-    mobFreezeAmplifier: 6,
+    leashRadius: 12,
+    /**
+     * Slowness amplifier. Amplifier >= 20 fully halts movement in Bedrock
+     * (the movement multiplier is clamped at zero). The v0.1.3 value of 6
+     * only slowed mobs by ~85% — they could still slowly claw out.
+     */
+    mobFreezeAmplifier: 25,
+    /** Prevents jumping so flying mobs and spiders cannot climb out. */
+    mobJumpAmplifier: 128,
+    /** Mining Fatigue V stops mobs swinging attacks / breaking blocks. */
+    mobFatigueAmplifier: 4,
+    /** Weakness keeps knockback and any residual attack trivial. */
+    mobWeaknessAmplifier: 3,
+    /** Blindness stops target tracking. */
+    mobBlindnessAmplifier: 0,
     /** Effect duration; refreshed every seatRefreshTicks. */
-    mobFreezeDurationTicks: 80,
+    mobFreezeDurationTicks: 60,
     /** Minimum ticks between corrections for the same captive. */
     correctionCooldownTicks: 20,
     /** How often the hold on the captive is re-asserted. */
@@ -64,41 +83,75 @@ export const CONFIG = {
   /** "The captive is struggling" rattle overlays. */
   struggle: {
     enabled: true,
-    minIntervalTicks: 120,
-    maxIntervalTicks: 320,
+    minIntervalTicks: 80,
+    maxIntervalTicks: 280,
     /** How long a strain/rattle overlay plays, in ticks. */
     strainDurationTicks: 12,
   },
 
+  /**
+   * Animation timings (ticks).
+   *
+   * Per-device open/released/broken values live on each device config entry
+   * (``config.openTicks`` etc.) so the server state transitions line up with
+   * the exact client-side animation length for that device. v0.1.3 used
+   * global constants here which cut off or dead-aired transitions on several
+   * devices.
+   *
+   * The ``releaseAnimationTicks`` / ``brokenAnimationTicks`` keys are kept as
+   * legacy fallbacks for the test suite and any external callers; new code
+   * should read ``device.config.openTicks`` / ``releasedTicks`` /
+   * ``brokenTicks`` directly.
+   */
   timings: {
     closedPauseTicks: 10,
-    releaseAnimationTicks: 30,
-    brokenAnimationTicks: 30,
+    /** Legacy fallback — devices use ``config.openTicks`` instead. */
+    get releaseAnimationTicks() { return 30; },
+    /** Legacy fallback — devices use ``config.brokenTicks`` instead. */
+    get brokenAnimationTicks() { return 30; },
   },
 
   particles: {
     impactEnabled: true,
-    smokeCount: 4,
-    sparkEnabled: true,
-    sparkCount: 2,
+    smokeCount: 5,
+    sparkCount: 3,
     /** Extra burst when a device closes on a victim. */
-    captureBurstCount: 6,
+    captureBurstCount: 8,
+    /** Extra burst when a device breaks. */
+    breakBurstCount: 12,
   },
 
-  vignette: {
+  /** Audio polish using existing vanilla sound events (no custom assets). */
+  sounds: {
     enabled: true,
-    fadeInTicks: 10,
+    /** Pitch jitter keeps repeated events from sounding robotic. */
+    pitchJitter: 0.12,
+    volume: 1.0,
+  },
+
+  /**
+   * Vignette — the brief blindness flash a captured player sees each cycle.
+   * Disabled because v0.1.3's persistent blindness felt like a bug; we still
+   * apply weakness as a mechanical debuff.
+   */
+  vignette: {
+    enabled: false,
+    fadeInTicks: 6,
   },
 
   ironMaiden: {
     captureRadius: 1.5,
     captureDelay: 20,
     closeDuration: 30,
+    openTicks: 30,
+    releasedTicks: 20,
+    brokenTicks: 30,
     tortureInterval: 60,
     tortureMinDamage: 10,
     tortureMaxDamage: 18,
     extremeDamageChance: 0.05,
     extremeDamageAmount: 20,
+    extremeDamageLethal: true,
     healAmount: 6,
     weaknessAmplifier: 0,
     weaknessDuration: 100,
@@ -109,17 +162,34 @@ export const CONFIG = {
     armorSpeedMultiplier: 0.9,
     redstoneActivationDelay: 10,
     dropOnBreak: true,
+    /** Where the captive is seated relative to the device origin, in blocks. */
+    seatOffset: { x: 0, y: 0.1, z: 0 },
+    /** Sound events for state transitions. */
+    sounds: {
+      detect: { event: "random.iron_golem", volume: 0.35, pitch: 0.7 },
+      close: { event: "random.anvil_land", volume: 0.9, pitch: 0.8 },
+      torture: { event: "mob.blaze.hit", volume: 0.45, pitch: 0.5 },
+      open: { event: "random.door_open", volume: 0.7, pitch: 0.6 },
+      release: { event: "random.explode", volume: 0.25, pitch: 1.4 },
+      break: { event: "random.anvil_break", volume: 1.0, pitch: 0.9 },
+      hit: { event: "random.anvil_use", volume: 0.4, pitch: 1.2 },
+      reinforce: { event: "random.anvil_use", volume: 0.6, pitch: 1.5 },
+    },
   },
 
   cursedStocks: {
     captureRadius: 1.2,
     captureDelay: 15,
     closeDuration: 20,
+    openTicks: 22,
+    releasedTicks: 16,
+    brokenTicks: 28,
     tortureInterval: 80,
     tortureMinDamage: 4,
     tortureMaxDamage: 8,
     extremeDamageChance: 0.03,
-    extremeDamageAmount: 12,
+    extremeDamageAmount: 20,
+    extremeDamageLethal: true,
     healAmount: 3,
     weaknessAmplifier: 1,
     weaknessDuration: 120,
@@ -130,17 +200,32 @@ export const CONFIG = {
     armorSpeedMultiplier: 0.95,
     redstoneActivationDelay: 10,
     dropOnBreak: true,
+    seatOffset: { x: 0, y: 0.05, z: 0 },
+    sounds: {
+      detect: { event: "random.wood_click", volume: 0.5, pitch: 0.9 },
+      close: { event: "random.door_close", volume: 0.7, pitch: 0.7 },
+      torture: { event: "mob.horse.wood", volume: 0.4, pitch: 0.6 },
+      open: { event: "random.door_open", volume: 0.6, pitch: 0.8 },
+      release: { event: "random.wood_click", volume: 0.5, pitch: 1.1 },
+      break: { event: "random.wood_break", volume: 0.9, pitch: 0.9 },
+      hit: { event: "damage.hit", volume: 0.35, pitch: 1.1 },
+      reinforce: { event: "random.anvil_use", volume: 0.5, pitch: 1.3 },
+    },
   },
 
   gravebinderCage: {
     captureRadius: 1.8,
     captureDelay: 25,
     closeDuration: 35,
+    openTicks: 28,
+    releasedTicks: 20,
+    brokenTicks: 32,
     tortureInterval: 50,
     tortureMinDamage: 6,
     tortureMaxDamage: 14,
     extremeDamageChance: 0.08,
-    extremeDamageAmount: 16,
+    extremeDamageAmount: 20,
+    extremeDamageLethal: true,
     healAmount: 4,
     weaknessAmplifier: 0,
     weaknessDuration: 80,
@@ -151,17 +236,32 @@ export const CONFIG = {
     armorSpeedMultiplier: 0.92,
     redstoneActivationDelay: 10,
     dropOnBreak: true,
+    seatOffset: { x: 0, y: 0.15, z: 0 },
+    sounds: {
+      detect: { event: "mob.bat.takeoff", volume: 0.4, pitch: 0.5 },
+      close: { event: "random.iron_golem", volume: 0.8, pitch: 0.6 },
+      torture: { event: "mob.irongolem.hit", volume: 0.5, pitch: 0.7 },
+      open: { event: "random.door_open", volume: 0.7, pitch: 0.7 },
+      release: { event: "random.explode", volume: 0.3, pitch: 1.3 },
+      break: { event: "random.anvil_break", volume: 1.0, pitch: 0.8 },
+      hit: { event: "mob.irongolem.hit", volume: 0.35, pitch: 1.0 },
+      reinforce: { event: "random.anvil_use", volume: 0.6, pitch: 1.4 },
+    },
   },
 
   regretRack: {
     captureRadius: 1.4,
     captureDelay: 30,
     closeDuration: 40,
+    openTicks: 32,
+    releasedTicks: 24,
+    brokenTicks: 36,
     tortureInterval: 100,
     tortureMinDamage: 8,
     tortureMaxDamage: 16,
     extremeDamageChance: 0.04,
-    extremeDamageAmount: 18,
+    extremeDamageAmount: 20,
+    extremeDamageLethal: true,
     healAmount: 5,
     weaknessAmplifier: 0,
     weaknessDuration: 100,
@@ -172,17 +272,32 @@ export const CONFIG = {
     armorSpeedMultiplier: 0.95,
     redstoneActivationDelay: 15,
     dropOnBreak: true,
+    seatOffset: { x: 0, y: 0.4, z: 0 },
+    sounds: {
+      detect: { event: "random.wood_click", volume: 0.4, pitch: 0.8 },
+      close: { event: "mob.horse.leather", volume: 0.7, pitch: 0.6 },
+      torture: { event: "damage.hurt", volume: 0.4, pitch: 0.6 },
+      open: { event: "random.door_open", volume: 0.6, pitch: 0.7 },
+      release: { event: "random.leashknot_place", volume: 0.5, pitch: 1.0 },
+      break: { event: "random.wood_break", volume: 1.0, pitch: 0.85 },
+      hit: { event: "damage.hit", volume: 0.4, pitch: 1.0 },
+      reinforce: { event: "random.anvil_use", volume: 0.55, pitch: 1.35 },
+    },
   },
 
   blackReliquary: {
     captureRadius: 2.0,
     captureDelay: 35,
     closeDuration: 45,
+    openTicks: 38,
+    releasedTicks: 28,
+    brokenTicks: 40,
     tortureInterval: 40,
     tortureMinDamage: 12,
     tortureMaxDamage: 20,
     extremeDamageChance: 0.1,
-    extremeDamageAmount: 24,
+    extremeDamageAmount: 20,
+    extremeDamageLethal: true,
     healAmount: 8,
     weaknessAmplifier: 1,
     weaknessDuration: 60,
@@ -193,5 +308,16 @@ export const CONFIG = {
     armorSpeedMultiplier: 0.85,
     redstoneActivationDelay: 5,
     dropOnBreak: true,
+    seatOffset: { x: 0, y: 0.15, z: 0 },
+    sounds: {
+      detect: { event: "mob.enderdragon.growl", volume: 0.35, pitch: 1.6 },
+      close: { event: "mob.wither.spawn", volume: 0.6, pitch: 2.0 },
+      torture: { event: "mob.endermen.scream", volume: 0.3, pitch: 2.0 },
+      open: { event: "mob.enderdragon.hit", volume: 0.6, pitch: 1.5 },
+      release: { event: "random.explode", volume: 0.4, pitch: 1.8 },
+      break: { event: "random.explode", volume: 1.0, pitch: 0.9 },
+      hit: { event: "mob.endermen.hit", volume: 0.4, pitch: 1.4 },
+      reinforce: { event: "fire.fire", volume: 0.5, pitch: 1.8 },
+    },
   },
 };
