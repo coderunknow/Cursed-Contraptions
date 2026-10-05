@@ -268,3 +268,27 @@ test("a player who dies inside a device gets their movement back on respawn", ()
   assert.equal(other.inputPermissions.movement, false);
   assert.equal(other.getDynamicProperty("cc:movement_was_enabled"), undefined);
 });
+
+test("a freshly placed device starts at full durability with no wear overlay", () => {
+  // The entity property default (generated from config.js baseDurability) is
+  // what a new device actually starts with, because a fresh entity has no
+  // dynamic properties yet. A default of 100 made every device spawn
+  // pre-damaged and cut its real durability by more than half.
+  const { device, deviceEntity } = setup();
+  assert.equal(device.durability, CONFIG.ironMaiden.baseDurability);
+  assert.equal(device.maxDurability, CONFIG.ironMaiden.baseDurability);
+  assert.equal(deviceEntity.hasTag("cc:anim_wear_0"), true);
+  assert.equal(deviceEntity.hasTag("cc:anim_wear_1"), false);
+
+  // Wear stages track durability, so a damaged device looks damaged.
+  for (const [ratio, stage] of [[0.9, 0], [0.6, 1], [0.4, 2], [0.2, 3]]) {
+    device.durability = Math.floor(device.maxDurability * ratio);
+    for (let index = 0; index < 4; index++) {
+      assert.equal(
+        deviceEntity.hasTag(`cc:anim_wear_${index}`),
+        index === stage,
+        `durability ratio ${ratio} should show wear_${stage}`,
+      );
+    }
+  }
+});

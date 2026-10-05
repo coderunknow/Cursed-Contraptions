@@ -75,6 +75,15 @@ Charge decays while the device is empty, so a fresh victim always starts at step
 
 ## Troubleshooting
 
+**The item is in the inventory but cannot be placed.** Fixed in the current
+v0.1.4 build. The device items declared `minecraft:block_placer` at item schema
+version `1.21.0`, but the game only honours that component from **1.21.50** up:
+the item still appeared in the menu and simply did nothing when used. The items
+now use the `1.21.60` schema, and `tests/validate_build.py` rejects any item
+that places a block below the minimum. Re-import the current
+`Cursed-Contraptions.mcaddon` and retry — craft the device or take it from the
+creative menu, then tap/right-click the block you want to place it on.
+
 **No devices in the creative inventory.** Check, in order:
 
 1. Both packs are enabled for the world (behavior *and* resource).
@@ -165,7 +174,7 @@ Requirements: Python 3, Node.js 22+, and Info-ZIP (`zip`). The packs themselves 
 
 ```bash
 npm install        # Dev-only tooling for the type-check gate
-npm test           # 38 tests: unit, manager, admin-command, lifecycle, mechanics, integration
+npm test           # 39 tests: unit, manager, admin-command, lifecycle, mechanics, integration
 npm run typecheck  # Type-check behavior-pack scripts against the stable 1.17.0 API surface
 ./build.sh         # Validate pack references and package the .mcaddon
 ```

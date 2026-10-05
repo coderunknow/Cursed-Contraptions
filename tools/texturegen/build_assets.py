@@ -12,6 +12,7 @@ is ordinary pack content; the generator is dev-only and never ships.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -76,6 +77,51 @@ CREATIVE_GROUP_NAME_KEY = CREATIVE_GROUP
 # pack's min_engine_version, so every world that can load the pack can read it.
 CREATIVE_CATALOG_FORMAT_VERSION = "1.21.60"
 
+# Item and block schema versions.
+#
+# The item schema version is load-bearing, not cosmetic: the documented
+# requirement for ``minecraft:block_placer`` is a format version of at least
+# 1.21.50 (Microsoft Learn item reference; the Bedrock Wiki states 1.26.0 for
+# the current component). v0.1.0-v0.1.4 shipped items at 1.21.0, so the game
+# accepted the item, showed it in the creative menu, and ignored the placement
+# component: *"I see it, but I can't place it."* The block schema version is
+# raised with it so both halves of the placement pair use the same documented
+# schema as the pack's ``min_engine_version``.
+ITEM_FORMAT_VERSION = "1.21.60"
+BLOCK_FORMAT_VERSION = "1.21.60"
+# Any item that places a block must meet this; guarded by tests/validate_build.py.
+BLOCK_PLACER_MIN_FORMAT = (1, 21, 50)
+
+# The device section names in behavior_pack/scripts/config.js. The generator
+# reads their ``baseDurability`` so the entity property default can never drift
+# from the value the script uses (see configured_base_durability).
+CONFIG_DEVICE_KEYS = {
+    "iron_maiden": "ironMaiden",
+    "cursed_stocks": "cursedStocks",
+    "gravebinder_cage": "gravebinderCage",
+    "regret_rack": "regretRack",
+    "black_reliquary": "blackReliquary",
+}
+
+
+def configured_base_durability(slug: str) -> int:
+    """Read a device's ``baseDurability`` straight out of config.js.
+
+    A freshly spawned device has no dynamic properties yet, so the script reads
+    its durability from the entity property - which means the property default
+    *is* the starting durability. v0.1.4 declared 100 for every device, so every
+    new device spawned half-worn (and, for the tougher frames, well under half
+    of their configured durability). Deriving the default from the config keeps
+    one source of truth for the number.
+    """
+    key = CONFIG_DEVICE_KEYS[slug]
+    source = (BP / "scripts" / "config.js").read_text(encoding="utf-8")
+    start = source.index(f"{key}: {{")
+    match = re.search(r"baseDurability:\s*(\d+)", source[start:])
+    if not match:
+        raise SystemExit(f"config.js: no baseDurability found for {key}")
+    return int(match.group(1))
+
 DEVICE_MODULES = (
     "iron_maiden",
     "cursed_stocks",
@@ -133,7 +179,7 @@ ITEM_ICONS = {
 BUILT_COLLISION: dict[str, dict] = {}
 
 
-def behavior_entity(art: DeviceArt, collision: dict) -> dict:
+def behavior_entity(art: DeviceArt, collision: dict, base_durability: int) -> dict:
     slug = art.slug
 
     return {
@@ -151,10 +197,13 @@ def behavior_entity(art: DeviceArt, collision: dict) -> dict:
                         "default": "idle",
                         "client_sync": True,
                     },
+                    # The default equals the device's configured durability in
+                    # config.js: a new device has no dynamic properties, so this
+                    # is the durability it actually starts with.
                     "cc:durability": {
                         "type": "int",
                         "range": [0, 1000],
-                        "default": 100,
+                        "default": base_durability,
                         "client_sync": True,
                     },
                     "cc:armor_count": {
@@ -343,17 +392,25 @@ def write_devices() -> list[DeviceArt]:
             wear_controller_json(art),
         )
         write_json(RP / "entity" / f"{art.slug}.entity.json", client_entity_json(art))
-        write_json(BP / "entities" / f"{art.slug}.json", behavior_entity(art, collision))
+        write_json(
+            BP / "entities" / f"{art.slug}.json",
+            behavior_entity(art, collision, configured_base_durability(art.slug)),
+        )
         write_json(
             BP / "blocks" / f"{art.slug}_block.json",
             {
-                "format_version": "1.21.0",
+                "format_version": BLOCK_FORMAT_VERSION,
                 "minecraft:block": {
                     "description": {
                         "identifier": f"cc:{art.slug}_block",
                         "menu_category": {"category": CREATIVE_CATEGORY, "group": CREATIVE_GROUP},
                     },
                     "components": {
+                        # An explicit full-block geometry: every documented
+                        # data-driven block example declares one, and an unset
+                        # geometry is exactly how a placed anchor block turns
+                        # into an invisible obstacle.
+                        "minecraft:geometry": {"identifier": "minecraft:geometry.full_block"},
                         "minecraft:destructible_by_mining": {"seconds_to_destroy": 1.0},
                         "minecraft:destructible_by_explosion": {"explosion_resistance": 6.0},
                         # Anchor blocks are a plain full cube. v0.1.2 pointed them
@@ -374,7 +431,11 @@ def write_devices() -> list[DeviceArt]:
         write_json(
             BP / "items" / f"{art.slug}.json",
             {
-                "format_version": "1.21.0",
+                # The item schema version gates minecraft:block_placer: the
+                # documented minimum is 1.21.50. Below it the item still loads,
+                # still appears in the creative menu, and silently cannot place
+                # its block.
+                "format_version": ITEM_FORMAT_VERSION,
                 "minecraft:item": {
                     "description": {
                         "identifier": f"cc:item_{art.slug}",

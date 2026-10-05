@@ -28,7 +28,7 @@
             0,
             1000
           ],
-          "default": 100,
+          "default": 150,
           "client_sync": true
         },
         "cc:armor_count": {

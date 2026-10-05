@@ -1,5 +1,5 @@
 {
-  "format_version": "1.21.0",
+  "format_version": "1.21.60",
   "minecraft:block": {
     "description": {
       "identifier": "cc:regret_rack_block",
@@ -9,6 +9,9 @@
       }
     },
     "components": {
+      "minecraft:geometry": {
+        "identifier": "minecraft:geometry.full_block"
+      },
       "minecraft:destructible_by_mining": {
         "seconds_to_destroy": 1.0
       },

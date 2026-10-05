@@ -30,6 +30,15 @@ UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 CREATIVE_CATEGORIES = {"construction", "equipment", "items", "nature"}
 NAMESPACED_IDENTIFIER = re.compile(r"^[A-Za-z0-9_.]+:[A-Za-z0-9_.]+$")
 ITEM_CATALOG = BP / "item_catalog" / "crafting_item_catalog.json"
+# minecraft:block_placer is only honoured from this item format version on.
+BLOCK_PLACER_MIN_FORMAT = (1, 21, 50)
+DEVICE_CONFIG_KEYS = {
+    "iron_maiden": "ironMaiden",
+    "cursed_stocks": "cursedStocks",
+    "gravebinder_cage": "gravebinderCage",
+    "regret_rack": "regretRack",
+    "black_reliquary": "blackReliquary",
+}
 
 errors: list[str] = []
 json_data: dict[Path, dict] = {}
@@ -302,6 +311,125 @@ def validate_item_catalog(menu_categories: dict[str, tuple[Path, dict]]) -> tupl
     return groups, listed
 
 
+def parse_version(value: object) -> tuple[int, ...] | None:
+    """Turn a manifest/format version list into a comparable tuple."""
+    if isinstance(value, str):
+        parts = [part for part in value.split(".") if part.isdigit()]
+        return tuple(int(part) for part in parts) if parts else None
+    if isinstance(value, list) and all(isinstance(part, int) for part in value):
+        return tuple(value)
+    return None
+
+
+def configured_base_durability(slug: str) -> int | None:
+    """Read a device's baseDurability out of behavior_pack/scripts/config.js."""
+    source = (BP / "scripts" / "config.js").read_text(encoding="utf-8")
+    key = DEVICE_CONFIG_KEYS.get(slug)
+    if not key:
+        return None
+    start = source.find(f"{key}: {{")
+    if start < 0:
+        return None
+    match = re.search(r"baseDurability:\s*(\d+)", source[start:])
+    return int(match.group(1)) if match else None
+
+
+def validate_placement_chain() -> None:
+    """Validate the item -> block -> entity chain a player uses to place a device.
+
+    Two defects shipped because nothing checked this chain:
+
+    * ``minecraft:block_placer`` only applies from item format version 1.21.50
+      on. Below it the item still loads and still appears in the creative menu,
+      but cannot place anything - the reported "I see it, but I can't place it".
+    * a device entity's ``cc:durability`` property default *is* the durability a
+      fresh device starts with (a new entity has no dynamic properties yet), so
+      a hand-written default made every newly placed device spawn half-worn.
+    """
+    print("\n=== Placement chain (item -> block -> entity) ===")
+
+    # Geometry ids the resource pack actually ships, so a block that points at a
+    # file-based geometry is checked while built-ins (minecraft:geometry.*) pass.
+    shipped_geometries: set[str] = set()
+    for path in RP.rglob("*.geo.json"):
+        data = json_data.get(path) or load_json(path) or {}
+        for geometry in data.get("minecraft:geometry", []):
+            identifier = geometry.get("description", {}).get("identifier")
+            if identifier:
+                shipped_geometries.add(identifier)
+
+    block_ids_found = set()
+    for path in (BP / "blocks").glob("*.json"):
+        data = json_data.get(path) or load_json(path) or {}
+        definition = data.get("minecraft:block", {})
+        identifier = definition.get("description", {}).get("identifier")
+        if not identifier:
+            continue
+        block_ids_found.add(identifier)
+        components = definition.get("components", {})
+        instances = components.get("minecraft:material_instances")
+        if not instances:
+            report_error(f"{path.name} ({identifier}) declares no minecraft:material_instances")
+        geometry = components.get("minecraft:geometry")
+        if isinstance(geometry, dict):
+            geometry_id = geometry.get("identifier")
+            if (geometry_id and not str(geometry_id).startswith("minecraft:geometry.")
+                    and geometry_id not in shipped_geometries):
+                report_error(f"{path.name} references undefined block geometry {geometry_id}")
+
+    placed = 0
+    for path in (BP / "items").glob("*.json"):
+        data = json_data.get(path) or load_json(path) or {}
+        item = data.get("minecraft:item", {})
+        identifier = item.get("description", {}).get("identifier")
+        components = item.get("components", {})
+        placer = components.get("minecraft:block_placer")
+        if not placer:
+            continue
+        placed += 1
+
+        version = parse_version(data.get("format_version"))
+        if version is None or version < BLOCK_PLACER_MIN_FORMAT:
+            report_error(
+                f"{path.name} ({identifier}) declares minecraft:block_placer at "
+                f"format_version {data.get('format_version')!r}; the documented minimum is "
+                f"{'.'.join(str(part) for part in BLOCK_PLACER_MIN_FORMAT)}, below which the "
+                "component is ignored and the item cannot place its block"
+            )
+
+        target = placer.get("block") if isinstance(placer, dict) else placer
+        if target not in block_ids_found:
+            report_error(f"{path.name} ({identifier}) places {target}, which no block defines")
+
+    for path in (BP / "entities").glob("*.json"):
+        data = json_data.get(path) or load_json(path) or {}
+        entity = data.get("minecraft:entity", {})
+        identifier = entity.get("description", {}).get("identifier", "")
+        slug = identifier.split(":", 1)[-1]
+        properties = entity.get("description", {}).get("properties", {})
+        if not properties:
+            continue
+
+        # A fresh device starts from these defaults, so they have to be usable.
+        state_default = properties.get("cc:state", {}).get("default")
+        if state_default != "idle":
+            report_error(f"{path.name} cc:state default is {state_default!r}, expected 'idle'")
+
+        durability_default = properties.get("cc:durability", {}).get("default")
+        configured = configured_base_durability(slug)
+        if configured is None:
+            report_error(f"{path.name}: no baseDurability in config.js for device {slug}")
+        elif durability_default != configured:
+            report_error(
+                f"{path.name} cc:durability default is {durability_default}, but config.js "
+                f"sets baseDurability {configured} for {slug}; a fresh device spawns at the "
+                "property default, so it would start damaged"
+            )
+
+    if placed:
+        report_ok(f"{placed} devices declare a valid block_placer for a defined block")
+
+
 def validate_pack_references() -> tuple[int, int, int, int]:
     print("\n=== Entity, block, item, texture, and animation references ===")
     bp_entities: dict[str, Path] = {}
@@ -483,9 +611,15 @@ def validate_pack_references() -> tuple[int, int, int, int]:
 
     for path in block_ids.values():
         block = (json_data.get(path) or {}).get("minecraft:block", {})
+        # Block geometry is declared either as a bare identifier or as an object
+        # with an identifier; built-ins (minecraft:geometry.*) are always valid.
+        # v0.1.4's anchor blocks are the first to declare one, which is how the
+        # old string-only branch went unnoticed until it raised a TypeError.
         geometry = block.get("components", {}).get("minecraft:geometry")
-        if geometry and geometry not in geometry_by_id:
-            report_error(f"Block {path.name} references undefined geometry {geometry}")
+        geometry_id = geometry.get("identifier") if isinstance(geometry, dict) else geometry
+        if (geometry_id and not str(geometry_id).startswith("minecraft:geometry.")
+                and geometry_id not in geometry_by_id):
+            report_error(f"Block {path.name} references undefined geometry {geometry_id}")
 
     for identifier, path in item_ids.items():
         item = (json_data.get(path) or {}).get("minecraft:item", {})
@@ -596,9 +730,16 @@ def validate_pack_references() -> tuple[int, int, int, int]:
             continue
         block = (json_data.get(behavior_path) or {}).get("minecraft:block", {})
         components = block.get("components", {})
-        geometry_id = components.get("minecraft:geometry")
+        geometry_component = components.get("minecraft:geometry")
+        geometry_id = (
+            geometry_component.get("identifier")
+            if isinstance(geometry_component, dict)
+            else geometry_component
+        )
         geometry = geometry_by_id.get(geometry_id)
         if not geometry:
+            # Built-in geometries (a full block) carry no texture dimensions to
+            # compare, so there is nothing further to check for this block.
             continue
         declared_dimensions = (
             geometry.get("description", {}).get("texture_width"),
@@ -761,6 +902,7 @@ def main() -> int:
     bp_manifest, _ = validate_manifests()
     validate_scripts(bp_manifest)
     counts = validate_pack_references()
+    validate_placement_chain()
     if args.package:
         validate_package(args.package.resolve())
 

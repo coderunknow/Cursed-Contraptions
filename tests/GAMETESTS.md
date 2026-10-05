@@ -186,3 +186,16 @@ treating the v0.1.4 feature set as verified.
    load. If the items are missing, run `/give @s cc:item_iron_maiden`: an
    unknown item means the behavior pack is off, a missing icon means the
    resource pack is off.
+
+## 8. Placement check (v0.1.4 rebuild)
+
+1. Take a device from the creative menu (or craft one) and place it on the
+   ground, on a wall, and on a block you are standing on. The device entity must
+   appear where you placed it and the item must be consumed in survival.
+2. Confirm the same works for all five devices, and that the crafted item (not
+   just the creative entry) can be placed.
+3. Confirm a freshly placed device looks new: no cracks/rust overlay, and
+   `/scriptevent cc:devices` reports full durability (200 for the Iron Maiden,
+   150 Stocks, 180 Cage, 300 Rack, 250 Reliquary).
+4. Break a device and confirm exactly one device item drops and can be placed
+   again.

@@ -16,7 +16,33 @@ dependency are unchanged; the new entity properties (`cc:charge`, `cc:souls`)
 and tags are additive, so existing worlds keep their devices, captives,
 durability, and reinforcements. No Beta APIs are used.
 
-### Fixed (same release, rebuilt after the first v0.1.4 test build)
+### Fixed (release rebuilt after the creative-inventory fix)
+
+- **The device could not be placed.** Every device item declared
+  `minecraft:block_placer` at `format_version` `1.21.0`. The documented minimum
+  for that component is **1.21.50** (Microsoft Learn item reference; the Bedrock
+  Wiki documents the current component as requiring 1.26.0). Below the minimum
+  the item still loads and still shows in the creative menu, but the placement
+  component is ignored — exactly *"I see it, but I can't place it"*. Items and
+  blocks now use the `1.21.60` schema, the same era as the pack's
+  `min_engine_version`, and `tests/validate_build.py` fails any item that
+  declares `block_placer` below the minimum.
+- **Fresh devices spawned half-worn.** The `cc:durability` entity property
+  default was a hard-coded `100` while the devices are configured for
+  150–300. A newly spawned device has no dynamic properties yet, so it *reads*
+  that default: every device started at 100 durability — visibly damaged
+  (wear stage 2–3) and less durable than configured. The default is now derived
+  from `config.js` per device (200 for the Iron Maiden, 300 for the Rack, …),
+  and the validator compares the two so they cannot drift apart again.
+- **Anchor blocks now declare an explicit full-block geometry.** Every
+  documented data-driven block example declares
+  `minecraft:geometry: {"identifier": "minecraft:geometry.full_block"}`; an
+  implicit geometry is how a converted-failed anchor turns into an invisible
+  obstacle (the v0.1.2 report). The validator also checks block geometries and
+  now tolerates the object form — the previous string-only branch raised a
+  `TypeError` the moment a block actually declared one.
+
+### Fixed (release rebuilt after the first v0.1.4 test build)
 
 - **Nothing appeared in the creative inventory.** Every item and anchor block
   declared `"group": "itemGroup.name.miscellaneous"`. That value is not in the
@@ -108,8 +134,8 @@ durability, and reinforcements. No Beta APIs are used.
 
 ### Validation
 
-- `npm test` is now **38 tests** (9 unit, 12 device lifecycle, 2 manager, 9
-  admin-command, 13 mechanics, 2 integration): the new `tests/mechanics.test.js`
+- `npm test` is now **39 tests** (9 unit, 12 device lifecycle, 2 manager, 9
+  admin-command, 14 mechanics, 2 integration): the new `tests/mechanics.test.js`
   pins the shove → reseat → no-damage contract, the release path when reseating
   fails, the escalation sequence `[14, 18, 22, 26, 46]`, soul-shard drops, field
   repair, the immunity ward, the HUD, rescue, the single-drop guarantee, and the
