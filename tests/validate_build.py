@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BP = ROOT / "behavior_pack"
 RP = ROOT / "resource_pack"
-RELEASE_VERSION = [0, 1, 3]
+RELEASE_VERSION = [0, 1, 4]
 MIN_ENGINE_VERSION = [1, 21, 60]
 SERVER_API_VERSION = "1.17.0"
 EXPECTED_PACKAGES = {
@@ -24,6 +24,21 @@ EXPECTED_PACKAGES = {
     "Cursed-Contraptions_RP.mcpack": RP / "manifest.json",
 }
 UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+# Creative-menu placement rules. "none" hides an item from the creative
+# inventory entirely, so it is deliberately not accepted here: this pack's items
+# exist to be seen and placed.
+CREATIVE_CATEGORIES = {"construction", "equipment", "items", "nature"}
+NAMESPACED_IDENTIFIER = re.compile(r"^[A-Za-z0-9_.]+:[A-Za-z0-9_.]+$")
+ITEM_CATALOG = BP / "item_catalog" / "crafting_item_catalog.json"
+# minecraft:block_placer is only honoured from this item format version on.
+BLOCK_PLACER_MIN_FORMAT = (1, 21, 50)
+DEVICE_CONFIG_KEYS = {
+    "iron_maiden": "ironMaiden",
+    "cursed_stocks": "cursedStocks",
+    "gravebinder_cage": "gravebinderCage",
+    "regret_rack": "regretRack",
+    "black_reliquary": "blackReliquary",
+}
 
 errors: list[str] = []
 json_data: dict[Path, dict] = {}
@@ -115,7 +130,7 @@ def validate_manifests() -> tuple[dict | None, dict | None]:
         if not header.get("name"):
             report_error(f"{name} manifest has no header name")
         if header.get("version") != RELEASE_VERSION:
-            report_error(f"{name} manifest must be version 0.1.2")
+            report_error(f"{name} manifest must be version {release_version}")
         if header.get("min_engine_version") != MIN_ENGINE_VERSION:
             report_error(f"{name} minimum engine version must be 1.21.60")
 
@@ -126,7 +141,7 @@ def validate_manifests() -> tuple[dict | None, dict | None]:
         for index, module in enumerate(modules):
             validate_uuid(module.get("uuid"), f"{name} module[{index}]", seen_uuids)
             if module.get("version") != RELEASE_VERSION:
-                report_error(f"{name} module[{index}] must be version 0.1.2")
+                report_error(f"{name} module[{index}] must be version {release_version}")
             entry = module.get("entry")
             if entry:
                 entry_path = pack_root(name) / entry
@@ -227,6 +242,194 @@ def validate_scripts(bp_manifest: dict | None) -> int:
     return len(scripts)
 
 
+def validate_item_catalog(menu_categories: dict[str, tuple[Path, dict]]) -> tuple[dict[str, list[str]], set[str]]:
+    """Check the creative item catalog and return its groups and item lists.
+
+    The catalog is what defines the pack's creative group (its icon and its
+    localized hover name), so ``menu_category.group`` has a real group to point
+    at instead of an un-namespaced name the game silently rejects.
+    """
+    print("\n=== Creative inventory registration ===")
+    data = json_data.get(ITEM_CATALOG) or load_json(ITEM_CATALOG)
+    if not data:
+        report_error(
+            f"Missing {ITEM_CATALOG.relative_to(ROOT)}: without it the pack's creative group "
+            "cannot be resolved and the devices never appear in the creative inventory"
+        )
+        return {}, set()
+
+    catalog = data.get("minecraft:crafting_items_catalog", {})
+    if not catalog:
+        report_error(f"{ITEM_CATALOG.name} has no minecraft:crafting_items_catalog block")
+        return {}, set()
+
+    groups: dict[str, list[str]] = {}
+    listed: set[str] = set()
+    for category in catalog.get("categories", []):
+        category_name = category.get("category_name")
+        if category_name not in CREATIVE_CATEGORIES:
+            report_error(f"{ITEM_CATALOG.name} declares unknown creative category {category_name!r}")
+        for group in category.get("groups", []):
+            identifier = group.get("group_identifier") or {}
+            name = identifier.get("name")
+            items = group.get("items", [])
+            if not name:
+                report_error(f"{ITEM_CATALOG.name} has a group without a group_identifier name")
+                continue
+            if not NAMESPACED_IDENTIFIER.fullmatch(str(name)):
+                report_error(
+                    f"{ITEM_CATALOG.name} group name {name!r} is not namespaced; "
+                    "menu_category.group must be <namespace>:<name>"
+                )
+            if name in groups:
+                report_error(f"{ITEM_CATALOG.name} defines creative group {name} twice")
+            groups[name] = list(items)
+            listed.update(items)
+            icon = identifier.get("icon")
+            if icon and icon not in menu_categories:
+                report_error(f"{ITEM_CATALOG.name} group {name} uses unknown icon {icon}")
+
+    for item in sorted(listed):
+        if item not in menu_categories:
+            report_error(f"{ITEM_CATALOG.name} lists {item}, which no item or block defines")
+
+    lang_file = RP / "texts" / "en_US.lang"
+    lang_text = lang_file.read_text(encoding="utf-8") if lang_file.is_file() else ""
+    for name in sorted(groups):
+        if f"{name}=" not in lang_text:
+            report_error(f"{lang_file.name} does not define the creative group name key {name}")
+
+    missing = sorted(identifier for identifier in menu_categories if identifier not in listed)
+    if missing and groups:
+        report_error(
+            f"{ITEM_CATALOG.name} does not list {len(missing)} declared item(s)/block(s): "
+            f"{', '.join(missing[:5])}"
+        )
+
+    if groups:
+        report_ok(f"Creative catalog defines {len(groups)} group(s) covering {len(listed)} entries")
+    return groups, listed
+
+
+def parse_version(value: object) -> tuple[int, ...] | None:
+    """Turn a manifest/format version list into a comparable tuple."""
+    if isinstance(value, str):
+        parts = [part for part in value.split(".") if part.isdigit()]
+        return tuple(int(part) for part in parts) if parts else None
+    if isinstance(value, list) and all(isinstance(part, int) for part in value):
+        return tuple(value)
+    return None
+
+
+def configured_base_durability(slug: str) -> int | None:
+    """Read a device's baseDurability out of behavior_pack/scripts/config.js."""
+    source = (BP / "scripts" / "config.js").read_text(encoding="utf-8")
+    key = DEVICE_CONFIG_KEYS.get(slug)
+    if not key:
+        return None
+    start = source.find(f"{key}: {{")
+    if start < 0:
+        return None
+    match = re.search(r"baseDurability:\s*(\d+)", source[start:])
+    return int(match.group(1)) if match else None
+
+
+def validate_placement_chain() -> None:
+    """Validate the item -> block -> entity chain a player uses to place a device.
+
+    Two defects shipped because nothing checked this chain:
+
+    * ``minecraft:block_placer`` only applies from item format version 1.21.50
+      on. Below it the item still loads and still appears in the creative menu,
+      but cannot place anything - the reported "I see it, but I can't place it".
+    * a device entity's ``cc:durability`` property default *is* the durability a
+      fresh device starts with (a new entity has no dynamic properties yet), so
+      a hand-written default made every newly placed device spawn half-worn.
+    """
+    print("\n=== Placement chain (item -> block -> entity) ===")
+
+    # Geometry ids the resource pack actually ships, so a block that points at a
+    # file-based geometry is checked while built-ins (minecraft:geometry.*) pass.
+    shipped_geometries: set[str] = set()
+    for path in RP.rglob("*.geo.json"):
+        data = json_data.get(path) or load_json(path) or {}
+        for geometry in data.get("minecraft:geometry", []):
+            identifier = geometry.get("description", {}).get("identifier")
+            if identifier:
+                shipped_geometries.add(identifier)
+
+    block_ids_found = set()
+    for path in (BP / "blocks").glob("*.json"):
+        data = json_data.get(path) or load_json(path) or {}
+        definition = data.get("minecraft:block", {})
+        identifier = definition.get("description", {}).get("identifier")
+        if not identifier:
+            continue
+        block_ids_found.add(identifier)
+        components = definition.get("components", {})
+        instances = components.get("minecraft:material_instances")
+        if not instances:
+            report_error(f"{path.name} ({identifier}) declares no minecraft:material_instances")
+        geometry = components.get("minecraft:geometry")
+        if isinstance(geometry, dict):
+            geometry_id = geometry.get("identifier")
+            if (geometry_id and not str(geometry_id).startswith("minecraft:geometry.")
+                    and geometry_id not in shipped_geometries):
+                report_error(f"{path.name} references undefined block geometry {geometry_id}")
+
+    placed = 0
+    for path in (BP / "items").glob("*.json"):
+        data = json_data.get(path) or load_json(path) or {}
+        item = data.get("minecraft:item", {})
+        identifier = item.get("description", {}).get("identifier")
+        components = item.get("components", {})
+        placer = components.get("minecraft:block_placer")
+        if not placer:
+            continue
+        placed += 1
+
+        version = parse_version(data.get("format_version"))
+        if version is None or version < BLOCK_PLACER_MIN_FORMAT:
+            report_error(
+                f"{path.name} ({identifier}) declares minecraft:block_placer at "
+                f"format_version {data.get('format_version')!r}; the documented minimum is "
+                f"{'.'.join(str(part) for part in BLOCK_PLACER_MIN_FORMAT)}, below which the "
+                "component is ignored and the item cannot place its block"
+            )
+
+        target = placer.get("block") if isinstance(placer, dict) else placer
+        if target not in block_ids_found:
+            report_error(f"{path.name} ({identifier}) places {target}, which no block defines")
+
+    for path in (BP / "entities").glob("*.json"):
+        data = json_data.get(path) or load_json(path) or {}
+        entity = data.get("minecraft:entity", {})
+        identifier = entity.get("description", {}).get("identifier", "")
+        slug = identifier.split(":", 1)[-1]
+        properties = entity.get("description", {}).get("properties", {})
+        if not properties:
+            continue
+
+        # A fresh device starts from these defaults, so they have to be usable.
+        state_default = properties.get("cc:state", {}).get("default")
+        if state_default != "idle":
+            report_error(f"{path.name} cc:state default is {state_default!r}, expected 'idle'")
+
+        durability_default = properties.get("cc:durability", {}).get("default")
+        configured = configured_base_durability(slug)
+        if configured is None:
+            report_error(f"{path.name}: no baseDurability in config.js for device {slug}")
+        elif durability_default != configured:
+            report_error(
+                f"{path.name} cc:durability default is {durability_default}, but config.js "
+                f"sets baseDurability {configured} for {slug}; a fresh device spawns at the "
+                "property default, so it would start damaged"
+            )
+
+    if placed:
+        report_ok(f"{placed} devices declare a valid block_placer for a defined block")
+
+
 def validate_pack_references() -> tuple[int, int, int, int]:
     print("\n=== Entity, block, item, texture, and animation references ===")
     bp_entities: dict[str, Path] = {}
@@ -271,31 +474,59 @@ def validate_pack_references() -> tuple[int, int, int, int]:
     else:
         report_ok(f"Matched {len(bp_entities)} behavior/resource entities")
 
-    for path in sorted((BP / "blocks").glob("*.json")):
-        data = json_data.get(path) or load_json(path)
-        if not data:
-            continue
-        block = data.get("minecraft:block", {})
-        identifier = block.get("description", {}).get("identifier")
-        if not identifier:
-            report_error(f"Block has no identifier: {path.relative_to(ROOT)}")
-            continue
-        if identifier in block_ids:
-            report_error(f"Duplicate block identifier: {identifier}")
-        block_ids[identifier] = path
+    # Creative-menu placement. A custom item or block only appears in the
+    # creative inventory when menu_category is valid: the category has to be one
+    # of the three visible tabs, and (since Bedrock 26.x) the optional group must
+    # be namespaced. v0.1.4 shipped the un-namespaced
+    # "itemGroup.name.miscellaneous", which the game rejects, so the add-on
+    # looked like it contained no items at all.
+    menu_categories: dict[str, tuple[Path, dict]] = {}
+    for state in ("block", "item"):
+        container = "minecraft:block" if state == "block" else "minecraft:item"
+        for path in sorted((BP / f"{state}s").glob("*.json")):
+            data = json_data.get(path) or load_json(path)
+            if not data:
+                continue
+            definition = data.get(container, {})
+            description = definition.get("description", {})
+            identifier = description.get("identifier")
+            if not identifier:
+                report_error(f"{state.capitalize()} has no identifier: {path.relative_to(ROOT)}")
+                continue
+            registry = block_ids if state == "block" else item_ids
+            if identifier in registry:
+                report_error(f"Duplicate {state} identifier: {identifier}")
+            registry[identifier] = path
+            menu_categories[identifier] = (path, description.get("menu_category") or {})
 
-    for path in sorted((BP / "items").glob("*.json")):
-        data = json_data.get(path) or load_json(path)
-        if not data:
+    catalog_groups, catalog_items = validate_item_catalog(menu_categories)
+
+    for identifier, (path, menu_category) in menu_categories.items():
+        category = menu_category.get("category")
+        if category not in CREATIVE_CATEGORIES:
+            report_error(
+                f"{path.name} ({identifier}) has menu_category category {category!r}; "
+                f"creative placement needs one of {sorted(CREATIVE_CATEGORIES)}"
+            )
+        group = menu_category.get("group")
+        if group is None:
             continue
-        item = data.get("minecraft:item", {})
-        identifier = item.get("description", {}).get("identifier")
-        if not identifier:
-            report_error(f"Item has no identifier: {path.relative_to(ROOT)}")
+        if not isinstance(group, str) or not re.fullmatch(NAMESPACED_IDENTIFIER, group):
+            report_error(
+                f"{path.name} ({identifier}) has menu_category group {group!r}; "
+                "the group must be namespaced as <namespace>:<name>"
+            )
             continue
-        if identifier in item_ids:
-            report_error(f"Duplicate item identifier: {identifier}")
-        item_ids[identifier] = path
+        if group not in catalog_groups:
+            report_error(
+                f"{path.name} ({identifier}) references creative group {group}, "
+                "which the item catalog does not define"
+            )
+        elif identifier not in catalog_groups[group]:
+            report_error(
+                f"{path.name} ({identifier}) declares creative group {group} "
+                "but the item catalog does not list it in that group"
+            )
 
     terrain = json_data.get(RP / "textures" / "terrain_texture.json") or load_json(RP / "textures" / "terrain_texture.json") or {}
     item_atlas = json_data.get(RP / "textures" / "item_texture.json") or load_json(RP / "textures" / "item_texture.json") or {}
@@ -378,20 +609,17 @@ def validate_pack_references() -> tuple[int, int, int, int]:
                 report_error(f"Duplicate animation identifier: {identifier}")
             animations[identifier] = definition
 
-    for path in sorted((RP / "animation_controllers").glob("*.animation_controllers.json")):
-        data = json_data.get(path) or load_json(path)
-        if not data:
-            continue
-        for identifier, definition in data.get("animation_controllers", {}).items():
-            if identifier in controllers:
-                report_error(f"Duplicate animation controller identifier: {identifier}")
-            controllers[identifier] = definition
-
     for path in block_ids.values():
         block = (json_data.get(path) or {}).get("minecraft:block", {})
+        # Block geometry is declared either as a bare identifier or as an object
+        # with an identifier; built-ins (minecraft:geometry.*) are always valid.
+        # v0.1.4's anchor blocks are the first to declare one, which is how the
+        # old string-only branch went unnoticed until it raised a TypeError.
         geometry = block.get("components", {}).get("minecraft:geometry")
-        if geometry and geometry not in geometry_by_id:
-            report_error(f"Block {path.name} references undefined geometry {geometry}")
+        geometry_id = geometry.get("identifier") if isinstance(geometry, dict) else geometry
+        if (geometry_id and not str(geometry_id).startswith("minecraft:geometry.")
+                and geometry_id not in geometry_by_id):
+            report_error(f"Block {path.name} references undefined geometry {geometry_id}")
 
     for identifier, path in item_ids.items():
         item = (json_data.get(path) or {}).get("minecraft:item", {})
@@ -402,6 +630,15 @@ def validate_pack_references() -> tuple[int, int, int, int]:
         target_block = components.get("minecraft:block_placer", {}).get("block")
         if target_block and target_block not in block_ids:
             report_error(f"Item {identifier} references missing block {target_block}")
+
+    for path in sorted((RP / "animation_controllers").glob("*.json")):
+        data = json_data.get(path) or load_json(path)
+        if not data:
+            continue
+        for identifier, definition in data.get("animation_controllers", {}).items():
+            if identifier in controllers:
+                report_error(f"Duplicate animation controller identifier: {identifier}")
+            controllers[identifier] = definition
 
     for path, description in rp_entities.values():
         texture_refs = description.get("textures", {}).values()
@@ -433,7 +670,9 @@ def validate_pack_references() -> tuple[int, int, int, int]:
                     )
             bone_names = {bone.get("name") for bone in geometry.get("bones", [])}
             for alias, animation_id in description.get("animations", {}).items():
-                if alias == "controller":
+                # Controller aliases are validated below, where the controller
+                # files are already loaded.
+                if str(animation_id).startswith("controller.animation."):
                     continue
                 animation = animations.get(animation_id)
                 if not animation:
@@ -443,20 +682,29 @@ def validate_pack_references() -> tuple[int, int, int, int]:
                 if missing_bones:
                     report_error(f"Animation {animation_id} references missing bones {sorted(missing_bones)}")
 
+        # An alias points at either an animation or an animation controller; the
+        # wear controller added in v0.1.4 is a second controller alias, so the
+        # name "controller" is no longer the only legal one.
         animation_aliases = description.get("animations", {})
-        controller_id = animation_aliases.get("controller")
-        if controller_id and controller_id not in controllers:
-            report_error(f"Client entity {path.name} references undefined controller {controller_id}")
-        for alias, animation_id in animation_aliases.items():
-            if alias != "controller" and animation_id not in animations:
-                report_error(f"Client entity {path.name} maps {alias} to missing animation {animation_id}")
+        controller_aliases = {
+            alias: target for alias, target in animation_aliases.items()
+            if str(target).startswith("controller.animation.")
+        }
+        for alias, target in animation_aliases.items():
+            if str(target).startswith("controller.animation."):
+                if target not in controllers:
+                    report_error(f"Client entity {path.name} references undefined controller {target}")
+            elif target not in animations:
+                report_error(f"Client entity {path.name} maps {alias} to missing animation {target}")
 
         scripts = description.get("scripts", {})
         for animated_alias in scripts.get("animate", []):
             if animated_alias not in animation_aliases:
                 report_error(f"Client entity {path.name} animates undefined alias {animated_alias}")
 
-        if controller_id in controllers:
+        for controller_id in controller_aliases.values():
+            if controller_id not in controllers:
+                continue
             definition = controllers[controller_id]
             states = definition.get("states", {})
             for state_name, state in states.items():
@@ -482,9 +730,16 @@ def validate_pack_references() -> tuple[int, int, int, int]:
             continue
         block = (json_data.get(behavior_path) or {}).get("minecraft:block", {})
         components = block.get("components", {})
-        geometry_id = components.get("minecraft:geometry")
+        geometry_component = components.get("minecraft:geometry")
+        geometry_id = (
+            geometry_component.get("identifier")
+            if isinstance(geometry_component, dict)
+            else geometry_component
+        )
         geometry = geometry_by_id.get(geometry_id)
         if not geometry:
+            # Built-in geometries (a full block) carry no texture dimensions to
+            # compare, so there is nothing further to check for this block.
             continue
         declared_dimensions = (
             geometry.get("description", {}).get("texture_width"),
@@ -647,6 +902,7 @@ def main() -> int:
     bp_manifest, _ = validate_manifests()
     validate_scripts(bp_manifest)
     counts = validate_pack_references()
+    validate_placement_chain()
     if args.package:
         validate_package(args.package.resolve())
 

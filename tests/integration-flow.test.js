@@ -182,3 +182,23 @@ test("full in-world flow through the real entry point: place → capture → tor
   advanceTicks(200);
   assert.equal(deviceManager.totalCount, 0);
 });
+
+test("a respawning player with capture leftovers is unlocked through the real entry point", () => {
+  deviceManager.start();
+  const dimension = new FakeDimension();
+  world.registerDimension(dimension);
+
+  // A player who died (or crashed) while trapped: no device holds them any
+  // more, but the movement lock and its saved value are still on their state.
+  const player = dimension.add(new FakeEntity("minecraft:player", dimension, { x: 4, y: 64, z: 4 }));
+  player.inputPermissions.movement = false;
+  player.setDynamicProperty("cc:movement_was_enabled", true);
+  player.addTag("cc:trapped");
+
+  world.afterEvents.playerSpawn.fire({ player });
+  advanceTicks(CONFIG.performance.chunkLoadGracePeriod + 6);
+
+  assert.equal(player.inputPermissions.movement, true);
+  assert.equal(player.getDynamicProperty("cc:movement_was_enabled"), undefined);
+  assert.equal(player.hasTag("cc:trapped"), false);
+});

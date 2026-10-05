@@ -81,7 +81,7 @@ class Quad:
     uv: Rect
     atlas: Image
     shade: float
-    depth: float
+    normal: Vec3
 
 
 def collect_quads(model: Model, atlas: Image, rects: dict, pose: dict | None = None,
@@ -112,9 +112,7 @@ def collect_quads(model: Model, atlas: Image, rects: dict, pose: dict | None = N
                 normal_world = tuple(component / length for component in normal_world)
                 lambert = max(0.0, sum(normal_world[axis] * light[axis] for axis in range(3)))
                 shade = 0.70 + 0.34 * lambert
-                center = tuple(sum(point[axis] for point in points) / 4 for axis in range(3))
-                quads.append(Quad(points, rect, atlas, shade, 0.0))
-                quads[-1].depth = center
+                quads.append(Quad(points, rect, atlas, shade, normal_world))
     return quads
 
 
@@ -164,15 +162,14 @@ def render(model: Model, atlas: Image, rects: dict, size=(220, 260), pose: dict 
     for quad in sorted(quads, key=lambda item: -sum(
         sum(point[axis] * forward[axis] for axis in range(3)) for point in item.corners
     )):
-        projected = [project(point) for point in quad.corners]
-        # Backface cull using the screen-space winding.
-        area = 0.0
-        for index in range(4):
-            x0, y0, _ = projected[index]
-            x1, y1, _ = projected[(index + 1) % 4]
-            area += x0 * y1 - x1 * y0
-        if area >= 0:
+        # Backface cull against the view direction. Using the (already
+        # transformed) face normal keeps culling independent of the corner
+        # winding used for UV addressing; a winding test silently drew the
+        # inside of every model in v0.1.3.
+        facing = sum(quad.normal[axis] * forward[axis] for axis in range(3))
+        if facing >= -1e-6:
             continue
+        projected = [project(point) for point in quad.corners]
         for triangle in ((0, 1, 2), (0, 2, 3)):
             _rasterize_triangle(
                 shaded, quad, [projected[index] for index in triangle],

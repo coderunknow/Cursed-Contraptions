@@ -9,6 +9,8 @@ Dev-only tool: nothing in this file ships inside the .mcaddon.
 
 from __future__ import annotations
 
+import math
+
 from canvas import Color, Painter, mix, rgba, shade, with_alpha
 
 # --------------------------------------------------------------------------- #
@@ -420,5 +422,272 @@ def rusted_socket(base: Color = STEEL_DARK, *, glow: Color | None = None):
                 glow,
             )
         painter.bevel(shade(base, 0.3), shade(base, -0.4), alpha=130)
+
+    return paint
+
+
+# --------------------------------------------------------------------------- #
+# v0.1.4 structure painters (barred walls, cracks, reliefs, mechanisms)
+# --------------------------------------------------------------------------- #
+def bar_grid(
+    base: Color = STEEL,
+    *,
+    light: Color = STEEL_HIGHLIGHT,
+    dark: Color = IRON_BLACK,
+    rails: int = 3,
+    spacing: int = 4,
+    rust: float = 0.3,
+):
+    """A transparent wall crossed by vertical bars and horizontal rails.
+
+    The gaps keep alpha 0 on purpose: ``entity_alphatest`` discards them, which
+    is what lets a captive be seen through the cage instead of behind a painted
+    picture of bars.
+    """
+
+    def paint(painter: Painter) -> None:
+        width, height = painter.rect.width, painter.rect.height
+        painter.clear()
+        for column in range(1, width, spacing):
+            painter.box(column, 0, 1, height, shade(base, -0.18))
+            painter.vline(min(width - 1, column), 0, height, shade(base, 0.05))
+            painter.vline(min(width - 1, column), 0, height, mix(base, light, 0.35))
+        for index in range(1, rails + 1):
+            row = int(index * height / (rails + 1))
+            painter.box(0, row, width, 1, shade(dark, -0.1))
+            painter.box(0, row + 1, width, 1, mix(base, light, 0.2))
+        for _ in range(max(1, int(width * rust))):
+            column = painter.rng.between(0, max(0, width - 1))
+            row = painter.rng.between(0, max(0, height - 3))
+            for offset in range(painter.rng.between(2, 5)):
+                painter.blend_px(column, min(height - 1, row + offset), RUST, painter.rng.between(60, 140) / 255.0)
+
+    return paint
+
+
+def cracks(seed: int = 0, *, count: int = 5, color: Color = IRON_BLACK, glow: Color | None = None):
+    """Transparent crack overlay: hairline fractures and chipped edges."""
+
+    def paint(painter: Painter) -> None:
+        width, height = painter.rect.width, painter.rect.height
+        painter.clear()
+        for index in range(count):
+            column = painter.rng.between(0, max(0, width - 1))
+            row = painter.rng.between(0, max(0, height - 1))
+            length = painter.rng.between(max(2, height // 6), max(3, height // 2))
+            for step in range(length):
+                painter.px(column, min(height - 1, row + step), color)
+                if painter.rng.below(0.45):
+                    column += painter.rng.between(-1, 1)
+                if glow and painter.rng.below(0.2):
+                    painter.px(min(width - 1, max(0, column + 1)), min(height - 1, row + step), glow)
+            if index % 2 == 0:
+                painter.px(min(width - 1, column), min(height - 1, row + length), color)
+        for _ in range(max(1, (width * height) // 24)):
+            column = painter.rng.between(0, max(0, width - 1))
+            row = painter.rng.between(0, max(0, height - 1))
+            painter.px(column, row, color)
+
+    return paint
+
+
+def skull(base: Color = BONE, *, dark: Color = BONE_DARK, socket: Color = IRON_BLACK):
+    """A small carved skull relief, size-relative so it survives rescaling."""
+
+    def paint(painter: Painter) -> None:
+        width, height = painter.rect.width, painter.rect.height
+        painter.gradient_v(shade(base, 0.14), shade(base, -0.18))
+        painter.noise(base, [shade(base, 0.16), dark], density=0.12)
+        if width < 5 or height < 6:
+            painter.bevel(shade(base, 0.3), dark, alpha=120)
+            return
+        eye_height = max(2, height // 5)
+        eye_width = max(1, width // 4)
+        eye_row = max(1, height // 3)
+        painter.box(max(0, width // 6), eye_row, eye_width, eye_height, socket)
+        painter.box(min(width - eye_width, width - width // 6 - eye_width), eye_row, eye_width, eye_height, socket)
+        painter.box(max(1, width // 3), eye_row + eye_height, max(1, width // 3), max(1, height // 6), shade(dark, -0.25))
+        mouth_row = eye_row + eye_height + max(2, height // 5)
+        for column in range(max(1, width // 4), width - max(1, width // 4), 2):
+            painter.box(column, mouth_row, 1, max(1, height // 8), shade(socket, 0.25))
+        painter.bevel(shade(base, 0.35), dark, alpha=140)
+
+    return paint
+
+
+def rune_band(base: Color = OBSIDIAN_LIGHT, *, glow: Color = SOUL_LIGHT, dark: Color = OBSIDIAN_DARK):
+    """A band of carved glyphs that catch the light."""
+
+    def paint(painter: Painter) -> None:
+        width, height = painter.rect.width, painter.rect.height
+        painter.fill(base)
+        painter.noise(base, [shade(base, 0.18), dark], density=0.16)
+        for column in range(2, width - 2, 3):
+            glyph = painter.rng.between(0, 3)
+            row = max(1, height // 2 - 2)
+            if glyph == 0:
+                painter.vline(column, row, 3, glow)
+                painter.px(column + 1, row + 1, glow)
+            elif glyph == 1:
+                painter.box(column, row, 2, 1, glow)
+                painter.px(column, row + 2, glow)
+            elif glyph == 2:
+                painter.px(column, row, glow)
+                painter.px(column, row + 2, glow)
+                painter.px(column + 1, row + 1, glow)
+            else:
+                painter.vline(column, row, 2, glow)
+            if painter.rng.below(0.4):
+                painter.px(min(width - 1, column + 1), row + 3, shade(glow, -0.35))
+        painter.bevel(shade(base, 0.3), dark, alpha=140)
+
+    return paint
+
+
+def spoked_wheel(base: Color = STEEL, *, light: Color = STEEL_HIGHLIGHT, dark: Color = IRON_BLACK, spokes: int = 6):
+    """A wheel face for cranks and winches: rim, hub and open spokes."""
+
+    def paint(painter: Painter) -> None:
+        width, height = painter.rect.width, painter.rect.height
+        painter.clear()
+        size = min(width, height)
+        radius = max(1.5, (size - 1) / 2)
+        rim = max(1.0, size / 7)
+        hub = max(1.0, size / 5)
+        center_x, center_y = (width - 1) / 2, (height - 1) / 2
+        painter.clear()
+        spoke_count = max(3, spokes)
+        for row in range(height):
+            for column in range(width):
+                # A true circle; sub-texel bias keeps the 1-texel-odd wheel round.
+                distance = math.hypot(column - center_x, row - center_y) + 0.15
+                if distance > radius:
+                    continue
+                if distance >= radius - rim or distance <= hub:
+                    painter.px(column, row, mix(base, light, 0.2) if distance > hub else mix(dark, base, 0.5))
+        for index in range(spoke_count):
+            radians = math.radians(index * (360.0 / spoke_count))
+            for step in range(max(1, int(radius))):
+                column = int(round(center_x + math.cos(radians) * step))
+                row = int(round(center_y + math.sin(radians) * step))
+                if 0 <= column < width and 0 <= row < height:
+                    painter.px(column, row, mix(base, dark, 0.25))
+        painter.bevel(light, dark, alpha=90)
+
+    return paint
+
+
+def soul_lantern(base: Color = IRON_BLACK, *, glass: Color = SOUL, light: Color = SOUL_PALE, frame: Color = STEEL_DARK):
+    """A squat iron lantern with a soul flame inside."""
+
+    def paint(painter: Painter) -> None:
+        width, height = painter.rect.width, painter.rect.height
+        painter.fill(frame)
+        inner_width = max(1, width - 2)
+        inner_height = max(1, height - 3)
+        painter.box(1, 1, inner_width, inner_height, shade(base, -0.1))
+        painter.box(1, 1, inner_width, inner_height, glass)
+        painter.box(1, 2, inner_width, max(1, inner_height - 2), mix(glass, light, 0.35))
+        painter.vline(max(1, width // 2), 1, inner_height, light)
+        painter.box(0, 0, width, 1, frame)
+        painter.box(0, height - 1, width, 1, frame)
+        painter.bevel(shade(frame, 0.35), IRON_BLACK, alpha=130)
+
+    return paint
+
+
+def wood_frame(base: Color = WOOD_MID, *, light: Color = WOOD_LIGHT, dark: Color = WOOD_DARK, braces: int = 2):
+    """Timber frame with corner braces, for the rack and the stocks."""
+
+    def paint(painter: Painter) -> None:
+        width, height = painter.rect.width, painter.rect.height
+        painter.fill(base)
+        painter.noise(base, [shade(base, 0.12), shade(base, -0.14)], density=0.15)
+        thickness = max(2, min(width, height) // 5)
+        painter.box(0, 0, width, thickness, shade(light, -0.05))
+        painter.box(0, height - thickness, width, thickness, dark)
+        painter.box(0, 0, thickness, height, light)
+        painter.box(width - thickness, 0, thickness, height, dark)
+        for index in range(braces):
+            row = int((index + 1) * height / (braces + 1))
+            painter.box(thickness, row, max(1, width - thickness * 2), thickness, mix(base, dark, 0.45))
+            painter.box(thickness, row + thickness, max(1, width - thickness * 2), 1, shade(light, 0.05))
+        painter.rivets(shade(light, 0.25), spacing=max(3, width // 4), inset=max(1, thickness - 1))
+        painter.bevel(light, dark, alpha=110)
+
+    return paint
+
+
+def steel_panel(
+    base: Color = STEEL,
+    *,
+    light: Color = STEEL_HIGHLIGHT,
+    dark: Color = STEEL_DARK,
+    recess: Color = IRON_BLACK,
+    seams: int = 3,
+    bands: int = 2,
+    rivets: bool = True,
+    grime: float = 0.25,
+    rust: float = 0.35,
+    scratches: int = 4,
+):
+    """A single bolt-on armour panel with real value structure.
+
+    v0.1.3 painted every metal face with the same two-stop gradient, which
+    flattened the whole device into one grey mass in game. This painter builds
+    a readable hierarchy instead: dark outer seam, bright top bevel, recessed
+    waist band, riveted frame and rust running out of the joints.
+    """
+
+    def paint(painter: Painter) -> None:
+        width, height = painter.rect.width, painter.rect.height
+        painter.gradient_v(shade(base, 0.18), shade(base, -0.34))
+        painter.noise(base, [shade(base, 0.12), shade(base, -0.16)], density=0.13)
+        # Outer seam and top highlight give the panel thickness.
+        painter.outline(shade(dark, -0.25), 0)
+        painter.box(1, 1, max(1, width - 2), 1, shade(light, -0.05))
+        painter.box(1, 0, max(1, width - 2), 1, shade(base, 0.25))
+        # Horizontal armour bands with a shadowed groove beneath each.
+        for index in range(1, bands + 1):
+            row = int(index * height / (bands + 1))
+            painter.box(0, row, width, 1, shade(dark, 0.18))
+            painter.box(0, min(height - 1, row + 1), width, 1, shade(recess, 0.15))
+        # Vertical plate seams.
+        for index in range(1, seams):
+            column = int(index * width / seams)
+            painter.vline(column, 1, max(1, height - 2), shade(recess, 0.2))
+            painter.vline(min(width - 1, column + 1), 1, max(1, height - 2), shade(light, 0.05))
+        if rivets and width >= 4 and height >= 4:
+            painter.rivets(mix(light, base, 0.25), spacing=max(4, width // 4), inset=2,
+                           highlight=shade(light, 0.3))
+        for _ in range(max(1, int(width * rust))):
+            column = painter.rng.between(0, max(0, width - 1))
+            row = painter.rng.between(0, max(1, height - 2))
+            for step in range(painter.rng.between(2, 6)):
+                painter.blend_px(column, min(height - 1, row + step), RUST, painter.rng.between(50, 130) / 255.0)
+        painter.streaks(GRIME, count=max(1, int(width * grime)), alpha_range=(30, 80))
+        if scratches:
+            painter.wear(shade(light, 0.15), chips=scratches, length=2, amount=0.32)
+        painter.bevel(light, shade(dark, -0.2), alpha=150)
+
+    return paint
+
+
+def stone_brick(base: Color = rgba("#4a4741"), *, light: Color = rgba("#5d5a53"), dark: Color = rgba("#26241f")):
+    """Grimy plinth masonry for the base of the heavier contraptions."""
+
+    def paint(painter: Painter) -> None:
+        width, height = painter.rect.width, painter.rect.height
+        painter.fill(base)
+        painter.noise(base, [shade(base, 0.16), shade(base, -0.2)], density=0.18)
+        row_height = max(3, height // 3)
+        for index, row in enumerate(range(0, height, row_height)):
+            offset = 0 if index % 2 == 0 else max(2, width // 4)
+            painter.box(0, row, width, 1, shade(dark, 0.1))
+            for column in range(offset, width, max(3, width // 3)):
+                painter.vline(column, row, row_height, shade(dark, 0.05))
+                painter.vline(min(width - 1, column + 1), row + 1, max(1, row_height - 1), shade(light, 0.05))
+        painter.streaks(dark, count=max(2, width // 4), alpha_range=(40, 90))
+        painter.bevel(light, dark, alpha=130)
 
     return paint

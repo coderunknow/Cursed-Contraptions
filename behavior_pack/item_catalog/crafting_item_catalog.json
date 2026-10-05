@@ -1,0 +1,30 @@
+{
+  "format_version": "1.21.60",
+  "minecraft:crafting_items_catalog": {
+    "categories": [
+      {
+        "category_name": "items",
+        "groups": [
+          {
+            "group_identifier": {
+              "icon": "cc:item_iron_maiden",
+              "name": "cc:itemGroup.name.devices"
+            },
+            "items": [
+              "cc:item_iron_maiden",
+              "cc:item_cursed_stocks",
+              "cc:item_gravebinder_cage",
+              "cc:item_regret_rack",
+              "cc:item_black_reliquary",
+              "cc:iron_maiden_block",
+              "cc:cursed_stocks_block",
+              "cc:gravebinder_cage_block",
+              "cc:regret_rack_block",
+              "cc:black_reliquary_block"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

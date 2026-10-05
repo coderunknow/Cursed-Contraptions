@@ -8,7 +8,10 @@ OUTPUT="$SCRIPT_DIR/Cursed-Contraptions.mcaddon"
 TEMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
-printf '%s\n' "=== Cursed Contraptions v0.1.3 Build ==="
+# The banner reads the version from the manifest so it can never go stale again
+# (it still said v0.1.3 while the manifests were already at 0.1.4).
+VERSION="$(python3 -c "import json,sys; print('.'.join(map(str, json.load(open(sys.argv[1]))['header']['version'])))" "$SCRIPT_DIR/behavior_pack/manifest.json")"
+printf '%s\n' "=== Cursed Contraptions v$VERSION Build ==="
 python3 "$SCRIPT_DIR/tests/validate_build.py"
 
 printf '\n%s\n' "Packaging behavior and resource packs..."

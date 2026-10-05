@@ -123,6 +123,20 @@ class Model:
                 yield bone, cube
 
 
+def patch_key(bone: Bone, cube_index: int, face: str, spec: Face) -> str:
+    """Atlas patch a face is painted into.
+
+    Mirrored faces get their own patch: Bedrock samples a mirrored patch by
+    running the U axis *backwards* from the UV origin, which would read the
+    neighbouring patch (or run off the atlas) if a shared rect were reused. The
+    mirror is baked into the image instead, so every UV pair stays positive.
+    """
+    base = spec.share or f"{bone.name}#{cube_index}:{face}"
+    if spec.flip_u or spec.flip_v:
+        return f"{base}#mirror"
+    return base
+
+
 def face_groups(model: Model) -> dict[str, list[tuple[int, int, str, Face]]]:
     """Group faces by atlas patch key so shared art is painted only once."""
     groups: dict[str, list[tuple[int, int, str, Face]]] = {}
@@ -132,7 +146,7 @@ def face_groups(model: Model) -> dict[str, list[tuple[int, int, str, Face]]]:
                 spec = cube.faces.get(face)
                 if spec is None:
                     continue
-                key = spec.share or f"{bone.name}#{cube_index}:{face}"
+                key = patch_key(bone, cube_index, face, spec)
                 groups.setdefault(key, []).append((bone_index, cube_index, face, spec))
     return groups
 
@@ -147,7 +161,9 @@ def pack_faces(model: Model) -> tuple[dict[str, dict[str, Rect]], dict[str, list
         width, height = spec.dimensions(face, cube.size, cube.inflate)
         entries.append((width * height, key, width, height))
 
-    entries.sort(key=lambda entry: (-entry[0], entry[1]))
+    # Tallest-first shelves pack noticeably tighter than area-first for the
+    # long thin faces of a barred cage or a door panel.
+    entries.sort(key=lambda entry: (-entry[3], -entry[2], entry[1]))
 
     placements: dict[str, Rect] = {}
     cursor_x = 0
@@ -187,8 +203,11 @@ def bake_atlas(model: Model, seed: int = 1) -> tuple[Image, dict[str, dict[str, 
         if spec.paint is not None:
             spec.paint(painter)
         # entity_alphatest drops anything under 50% alpha, so no shipped texel
-        # may be left semi-transparent.
+        # may be left semi-transparent. Fully transparent texels are kept: they
+        # are how a cage wall or a barred window shows what is behind it.
         painter.opaque()
+        if key.endswith("#mirror"):
+            mirror_rect(image, rect, spec.flip_u, spec.flip_v)
 
     uv_map: dict[str, dict[str, dict]] = {}
     for bone in model.bones:
@@ -202,12 +221,9 @@ def bake_atlas(model: Model, seed: int = 1) -> tuple[Image, dict[str, dict[str, 
                 rect = rects[bone.name].get(f"{cube_index}:{face}")
                 if rect is None:
                     continue
-                uv_size = [rect.width, rect.height]
-                if spec.flip_u:
-                    uv_size[0] = -uv_size[0]
-                if spec.flip_v:
-                    uv_size[1] = -uv_size[1]
-                face_uv[face] = {"uv": [rect.x, rect.y], "uv_size": uv_size}
+                # Mirrored faces are pre-mirrored in the atlas (see patch_key),
+                # so the UV rectangle is always a positive-size read.
+                face_uv[face] = {"uv": [rect.x, rect.y], "uv_size": [rect.width, rect.height]}
             if face_uv:
                 cube_uv[str(cube_index)] = face_uv
         uv_map[bone.name] = cube_uv
@@ -261,6 +277,51 @@ def geometry_json(model: Model, uv_map: dict[str, dict[str, dict]]) -> dict:
             }
         ],
     }
+
+
+def mirror_rect(image: Image, rect: Rect, flip_u: bool, flip_v: bool) -> None:
+    """Mirror a painted patch in place, so one painter serves both hands."""
+    if not flip_u and not flip_v:
+        return
+    for row in range(rect.height):
+        for column in range(rect.width):
+            source_column = rect.width - 1 - column if flip_u else column
+            source_row = rect.height - 1 - row if flip_v else row
+            image.set(rect.x + column, rect.y + row, image.get(rect.x + source_column, rect.y + source_row))
+
+
+def model_bounds(model: Model, ignore: tuple = ()) -> tuple[float, float, float, float, float, float]:
+    """Axis-aligned bounds (in model units) of every cube, including rotation slack."""
+    xs: list[float] = []
+    ys: list[float] = []
+    zs: list[float] = []
+    for bone in model.bones:
+        if bone.name in ignore:
+            continue
+        for cube in bone.cubes:
+            # A rotated cube can stick out; pad by its diagonal to stay safe.
+            slack = 0.0
+            if cube.rotation:
+                slack = max(cube.size) * 0.5
+            xs.extend([cube.origin[0] - cube.inflate - slack, cube.origin[0] + cube.size[0] + cube.inflate + slack])
+            ys.extend([cube.origin[1] - cube.inflate - slack, cube.origin[1] + cube.size[1] + cube.inflate + slack])
+            zs.extend([cube.origin[2] - cube.inflate - slack, cube.origin[2] + cube.size[2] + cube.inflate + slack])
+    if not xs:
+        return (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    return (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
+
+
+def apply_auto_bounds(model: Model, margin: float = 1.12) -> None:
+    """Derive visible bounds (in blocks) from the cubes, so no device needs tuning.
+
+    Bedrock expresses ``visible_bounds_*`` in blocks while the model itself is
+    authored in sixteenths, so the conversion happens here, exactly once.
+    """
+    min_x, min_y, min_z, max_x, max_y, max_z = model_bounds(model)
+    width = max(max_x - min_x, max_z - min_z) / 16 * margin
+    height = max(0.5, (max_y - min_y) / 16 * margin)
+    model.visible_bounds = (round(width, 2), round(height, 2))
+    model.visible_offset = (0.0, round((min_y + max_y) / 32, 2), 0.0)
 
 
 def write_geometry(model: Model, path: Path, uv_map: dict[str, dict[str, dict]]) -> None:

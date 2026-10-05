@@ -12,6 +12,7 @@ import { deviceManager } from "./devices/device-manager.js";
 import { CONFIG } from "./config.js";
 import { Debug } from "./utils/debug.js";
 import { isEntityValid } from "./utils/damage.js";
+import { TortureDevice } from "./devices/device-base.js";
 
 const BLOCK_TO_ENTITY = Object.freeze({
   "cc:iron_maiden_block": "cc:iron_maiden",
@@ -272,7 +273,7 @@ subscribeSafely("entity load", () => {
 
     system.runTimeout(() => {
       if (!isEntityValid(entity) || deviceManager.hasVictimOrPending(entity.id)) return;
-      clearStaleCapture(entity);
+      TortureDevice.clearStaleCapture(entity);
     }, CONFIG.performance.chunkLoadGracePeriod + 5);
   });
 });
@@ -285,11 +286,9 @@ subscribeSafely("player spawn", () => {
       const device = deviceManager.getDeviceByVictimId(player.id);
       if (device?.reconnectVictim(player)) return;
 
-      try {
-        if (player.hasTag(TRAPPED_TAG) || player.hasTag(CAPTURE_RESERVED_TAG)) {
-          clearStaleCapture(player);
-        }
-      } catch (_) {}
+      // Also covers respawning after dying inside a device: the link is gone
+      // but the movement lock and its saved value are still on the player.
+      if (TortureDevice.needsCaptureRecovery(player)) TortureDevice.clearStaleCapture(player);
     }, CONFIG.performance.chunkLoadGracePeriod + 5);
   });
 });
@@ -301,21 +300,6 @@ subscribeSafely("player leave", () => {
     if (device) device.onVictimUnavailable(playerId);
   });
 });
-
-function clearStaleCapture(entity) {
-  try {
-    entity.removeTag(TRAPPED_TAG);
-    entity.removeTag(CAPTURE_RESERVED_TAG);
-  } catch (_) {}
-
-  if (entity.typeId !== "minecraft:player") return;
-  let saved;
-  try { saved = entity.getDynamicProperty(MOVEMENT_SAVED_PROPERTY); } catch (_) {}
-  if (typeof saved === "boolean") {
-    try { entity.inputPermissions.setPermissionCategory(InputPermissionCategory.Movement, saved); } catch (_) {}
-  }
-  try { entity.setDynamicProperty(MOVEMENT_SAVED_PROPERTY, undefined); } catch (_) {}
-}
 
 subscribeSafely("redstone polling", () => {
   system.runInterval(() => {
@@ -376,6 +360,7 @@ subscribeSafely("redstone polling", () => {
  *
  * Commands (cheats must be enabled; every command requires the cc:admin tag):
  *   /scriptevent cc:give      — add all five devices to your inventory
+ *   /scriptevent cc:souls     — add a stack of soul shards (warding reagent)
  *   /scriptevent cc:devices   — list registered devices and their state
  *   /scriptevent cc:debug on  — enable debug logging
  *   /scriptevent cc:debug off — disable debug logging
@@ -400,6 +385,9 @@ function handleAdminScriptEvent(event) {
     case "cc:give":
       giveAdminDevices(sender);
       return;
+    case "cc:souls":
+      giveAdminSoulShards(sender);
+      return;
     case "cc:devices":
       listAdminDevices(sender);
       return;
@@ -410,7 +398,7 @@ function handleAdminScriptEvent(event) {
       sendAdminHelp(sender);
       return;
     default:
-      sender.sendMessage("§e[Cursed Contraptions] Unknown command. Try cc:give, cc:devices or cc:debug — see /scriptevent cc:help.");
+      sender.sendMessage("§e[Cursed Contraptions] Unknown command. Try cc:give, cc:souls, cc:devices or cc:debug — see /scriptevent cc:help.");
   }
 }
 
@@ -435,6 +423,19 @@ function giveAdminDevices(sender) {
   }
 }
 
+function giveAdminSoulShards(sender) {
+  try {
+    const inventory = sender.getComponent("minecraft:inventory")?.container;
+    if (!inventory) throw new Error("Player inventory is unavailable");
+    const leftovers = inventory.addItem(new ItemStack(CONFIG.souls.itemId, 8));
+    sender.sendMessage(leftovers
+      ? "§e[Cursed Contraptions] Part of the shard stack did not fit; make room and try again."
+      : "§aSoul shards added. Sneak + use a device to ward yourself from capture.");
+  } catch (error) {
+    sender.sendMessage(`§c[Cursed Contraptions] ${error.message || error}`);
+  }
+}
+
 function listAdminDevices(sender) {
   // One message per entry: a single concatenated chat string is truncated by
   // the client once it exceeds a few hundred characters (audit finding F6).
@@ -447,6 +448,7 @@ function listAdminDevices(sender) {
 function sendAdminHelp(sender) {
   sender.sendMessage("§6[Cursed Contraptions] commands:");
   sender.sendMessage("  §f/scriptevent cc:give§7 — add all five devices");
+  sender.sendMessage("  §f/scriptevent cc:souls§7 — add a stack of soul shards");
   sender.sendMessage("  §f/scriptevent cc:devices§7 — list devices and their state");
   sender.sendMessage("  §f/scriptevent cc:debug on|off§7 — toggle debug logging");
   sender.sendMessage("§7Requires the §fcc:admin§7 tag: §f/tag <player> add cc:admin");

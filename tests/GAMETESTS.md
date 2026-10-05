@@ -127,3 +127,75 @@ the v0.1.3 fixes as verified.
 5. **Feedback.** Hit a device and confirm sparks and (when occupied) a flinch.
    Reinforce one with armor and confirm the burst and message. Break one and
    confirm the release animation, the freed captive, and exactly one item drop.
+
+## 6. v0.1.4 spot-checks (scale, mechanics, polish)
+
+These target the v0.1.4 request ("bigger, more animations and mechanics") and the
+reported bug ("mobs get pushed out but still get damage"). Run them before
+treating the v0.1.4 feature set as verified.
+
+1. **Scale and readability.** Place all five devices side by side. Each should
+   stand 2.2+ blocks tall, read as a distinct contraption from four sides and
+   diagonally, and never clip into a two-block ceiling or look like a
+   half-width prop. Check the collision box (walk into it) matches what you see.
+2. **Containment honesty (the reported bug).** Capture a zombie, then shove it
+   with a piston, wash it with a water bucket, and knock it with a sword. It
+   must snap back inside the frame and take **no** damage while outside; the
+   `/scriptevent cc:devices` durability must only fall while it is visibly
+   seated. Repeat with a cow and a villager (they have different AI).
+3. **Stuck-release path.** Fill the seat area with blocks so a captive cannot be
+   reseated, then confirm the device frees it with "You slipped free of the
+   device." instead of damaging an invisible prisoner.
+4. **Soul charge.** Stand in a device (or cage a mob) and watch the action-bar
+   pips: 0 → 3 uses the normal torture loop, and from 3 the animation turns
+   hotter (`torturing_high`). At 4/4 the frame should vent with the `burst`
+   overlay, play the surge/soul cues, and increment the soul count.
+5. **Soul shards and warding.** Break a device that has vented at least twice and
+   confirm soul shards drop. Sneak + use a device while holding a shard: the
+   ward message appears, the shard is consumed once, and devices will not claim
+   you for five minutes (including after a relog).
+6. **Field repair.** Damage a device, then hold its repair material and use the
+   device: durability must rise, the material must be consumed once, and the
+   wear overlay (cracks/rust) must step back down. At full durability the
+   material must not be consumed.
+7. **Wear visuals.** Knock a device down through the four wear stages and
+   confirm the cracks spread from the panels to the roof and plinth, then
+   repair it back to stage 0.
+8. **HUD and audio.** As a captive, confirm the action bar shows device, state,
+   seconds, and pips, and that it does not flicker or spam. Confirm a strike,
+   latch, release, repair, reinforcement, surge, and break each produce a
+   distinct vanilla sound from outside the device.
+9. **Rescue still wins.** Interact with an occupied device as a teammate: rescue
+   must take priority over reinforcement and repair, the captive must be freed,
+   moved clear, and given their movement back, and they can be recaptured
+   afterwards.
+10. Create a fresh copy of the world so old devices load with the new properties
+    (`cc:charge`, `cc:souls`) and confirm the wear tags and animations resync.
+11. **Death and relog recovery.** Die while trapped, then respawn: you must be
+    able to move immediately and no device should still list you as its captive
+    (`/scriptevent cc:devices`). Repeat with a disconnect during the closed
+    animation and a rejoin.
+
+## 7. v0.1.4 hotfix spot-check (creative-menu registration)
+
+1. Enable both packs in a world and open the creative inventory. The five
+   devices (and their five placeholder anchor blocks) must appear under
+   **Items → Cursed Contraptions (Devices)**, with icons and names. Searching
+   for "Iron Maiden" must also find it.
+2. Confirm the Content Log shows no `menu_category`/item-group error on world
+   load. If the items are missing, run `/give @s cc:item_iron_maiden`: an
+   unknown item means the behavior pack is off, a missing icon means the
+   resource pack is off.
+
+## 8. Placement check (v0.1.4 rebuild)
+
+1. Take a device from the creative menu (or craft one) and place it on the
+   ground, on a wall, and on a block you are standing on. The device entity must
+   appear where you placed it and the item must be consumed in survival.
+2. Confirm the same works for all five devices, and that the crafted item (not
+   just the creative entry) can be placed.
+3. Confirm a freshly placed device looks new: no cracks/rust overlay, and
+   `/scriptevent cc:devices` reports full durability (200 for the Iron Maiden,
+   150 Stocks, 180 Cage, 300 Rack, 250 Reliquary).
+4. Break a device and confirm exactly one device item drops and can be placed
+   again.

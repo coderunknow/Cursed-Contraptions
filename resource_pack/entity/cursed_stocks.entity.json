@@ -18,15 +18,23 @@
         "close": "animation.cc_cursed_stocks.close",
         "closed": "animation.cc_cursed_stocks.closed",
         "torture": "animation.cc_cursed_stocks.torture",
+        "torture_high": "animation.cc_cursed_stocks.torture_high",
         "strain": "animation.cc_cursed_stocks.strain",
+        "burst": "animation.cc_cursed_stocks.burst",
         "open": "animation.cc_cursed_stocks.open",
         "released": "animation.cc_cursed_stocks.released",
         "broken": "animation.cc_cursed_stocks.broken",
-        "controller": "controller.animation.cc_cursed_stocks.state"
+        "wear_0": "animation.cc_cursed_stocks.wear_0",
+        "wear_1": "animation.cc_cursed_stocks.wear_1",
+        "wear_2": "animation.cc_cursed_stocks.wear_2",
+        "wear_3": "animation.cc_cursed_stocks.wear_3",
+        "state": "controller.animation.cc_cursed_stocks.state",
+        "wear": "controller.animation.cc_cursed_stocks.wear"
       },
       "scripts": {
         "animate": [
-          "controller"
+          "state",
+          "wear"
         ]
       },
       "render_controllers": [

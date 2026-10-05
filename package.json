@@ -1,10 +1,10 @@
 {
   "name": "cursed-contraptions",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/unit/*.test.js && node --import ./tests/register-minecraft-loader.mjs --test tests/device-base.test.js tests/device-manager.test.js tests/admin-commands.test.js tests/integration-flow.test.js",
+    "test": "node --test tests/unit/*.test.js && node --import ./tests/register-minecraft-loader.mjs --test tests/device-base.test.js tests/device-manager.test.js tests/admin-commands.test.js tests/mechanics.test.js tests/integration-flow.test.js",
     "typecheck": "tsc -p tsconfig.json"
   },
   "engines": {

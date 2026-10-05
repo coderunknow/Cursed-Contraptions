@@ -1,11 +1,11 @@
 {
-  "format_version": "1.21.0",
+  "format_version": "1.21.60",
   "minecraft:item": {
     "description": {
       "identifier": "cc:item_gravebinder_cage",
       "menu_category": {
         "category": "items",
-        "group": "itemGroup.name.miscellaneous"
+        "group": "cc:itemGroup.name.devices"
       }
     },
     "components": {

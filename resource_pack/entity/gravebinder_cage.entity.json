@@ -18,15 +18,23 @@
         "close": "animation.cc_gravebinder_cage.close",
         "closed": "animation.cc_gravebinder_cage.closed",
         "torture": "animation.cc_gravebinder_cage.torture",
+        "torture_high": "animation.cc_gravebinder_cage.torture_high",
         "strain": "animation.cc_gravebinder_cage.strain",
+        "burst": "animation.cc_gravebinder_cage.burst",
         "open": "animation.cc_gravebinder_cage.open",
         "released": "animation.cc_gravebinder_cage.released",
         "broken": "animation.cc_gravebinder_cage.broken",
-        "controller": "controller.animation.cc_gravebinder_cage.state"
+        "wear_0": "animation.cc_gravebinder_cage.wear_0",
+        "wear_1": "animation.cc_gravebinder_cage.wear_1",
+        "wear_2": "animation.cc_gravebinder_cage.wear_2",
+        "wear_3": "animation.cc_gravebinder_cage.wear_3",
+        "state": "controller.animation.cc_gravebinder_cage.state",
+        "wear": "controller.animation.cc_gravebinder_cage.wear"
       },
       "scripts": {
         "animate": [
-          "controller"
+          "state",
+          "wear"
         ]
       },
       "render_controllers": [

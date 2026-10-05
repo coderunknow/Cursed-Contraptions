@@ -18,15 +18,23 @@
         "close": "animation.cc_black_reliquary.close",
         "closed": "animation.cc_black_reliquary.closed",
         "torture": "animation.cc_black_reliquary.torture",
+        "torture_high": "animation.cc_black_reliquary.torture_high",
         "strain": "animation.cc_black_reliquary.strain",
+        "burst": "animation.cc_black_reliquary.burst",
         "open": "animation.cc_black_reliquary.open",
         "released": "animation.cc_black_reliquary.released",
         "broken": "animation.cc_black_reliquary.broken",
-        "controller": "controller.animation.cc_black_reliquary.state"
+        "wear_0": "animation.cc_black_reliquary.wear_0",
+        "wear_1": "animation.cc_black_reliquary.wear_1",
+        "wear_2": "animation.cc_black_reliquary.wear_2",
+        "wear_3": "animation.cc_black_reliquary.wear_3",
+        "state": "controller.animation.cc_black_reliquary.state",
+        "wear": "controller.animation.cc_black_reliquary.wear"
       },
       "scripts": {
         "animate": [
-          "controller"
+          "state",
+          "wear"
         ]
       },
       "render_controllers": [

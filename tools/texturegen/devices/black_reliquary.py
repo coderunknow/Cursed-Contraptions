@@ -1,9 +1,12 @@
-"""The Black Reliquary — obsidian tomb-chest with a levitating soul crystal.
+"""The Black Reliquary — an obsidian shrine that hoards souls.
 
-Layout: a heavy plinth carrying a rune disc, an obsidian chamber, double doors
-with a gem-set seal, a gilded lid, corner braziers burning soul fire and four
-chains. The crystal floats above the lid, and the rune disc turns while the
-device is working.
+v0.1.4 rebuild: roughly 2.2 x 2.9 x 2.2 blocks. Stepped obsidian plinth,
+buttressed shrine body with gold bands, a shrine door that opens onto a glowing
+soul recess, an iron lantern hanging over the door, gold chain swags down the
+corners, a faceted soul crystal finial that swells while the device works, and
+obsidian chips that flake off as it takes damage.
+
+Dev-only tool: nothing in this file ships inside the .mcaddon.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from artkit import (
     OBSIDIAN_DARK,
     OBSIDIAN_FACET,
     OBSIDIAN_LIGHT,
+    RUST,
     SOUL,
     SOUL_LIGHT,
     SOUL_PALE,
@@ -29,536 +33,638 @@ from artkit import (
     STEEL_DARK,
     STEEL_HIGHLIGHT,
     STEEL_LIGHT,
+    STEEL_MID,
     chain,
-    cloth,
+    cracks,
     crystal,
+    flat,
     gold_trim,
     netherite_plate,
     obsidian,
+    rune_band,
     soul_glow,
-    steel_plate,
+    steel_panel,
+    stone_brick,
 )
+from canvas import mix, rgba, shade
 from model import Face, Model
-from pipeline import DeviceArt
-from _kit import finalize, flat_face, shared_face
+from pipeline import DeviceArt, scale_device
 
 CAPTURE_DELAY = 1.75
 CLOSE_DURATION = 2.25
 CLOSED_PAUSE = 0.5
 TORTURE_INTERVAL = 2.0
-RELEASE_TIME = 1.4
-BROKEN_TIME = 2.0
+RELEASE_TIME = 1.0
+BROKEN_TIME = 1.5
+STRAIN_TIME = 0.7
+BURST_TIME = 0.45
 
-RUNE_DISC = [
-    "....####....",
-    "..##....##..",
-    ".#..####..#.",
-    "#..##..##..#",
-    "#.##.GG.##.#",
-    "#.##.GG.##.#",
-    "#..##GG##..#",
-    ".#..####..#.",
-    "..##....##..",
-    "....####....",
-]
+# World size: authored scale x1.1 (1 unit = 1/16 block) -> 2.6 blocks tall.
+SCALE = 1.1
+
+HIDDEN = rgba("#0c0a14")
+RECESS = rgba("#0a0812")
+
+DOOR_SHUT = 0.0
+DOOR_OPEN = 104.0
 
 
-def _door(hinge_left: bool):
-    """Obsidian door leaf: gilded frame, rune ring, and a gem-set seal."""
+def face(paint, **kwargs) -> Face:
+    return Face(paint=paint, **kwargs)
 
-    def paint(painter) -> None:
-        obsidian()(painter)
-        width, height = painter.rect.width, painter.rect.height
-        # Gilded frame.
-        painter.outline(GOLD, inset=0)
-        painter.outline(GOLD_LIGHT, inset=1)
-        painter.outline(OBSIDIAN_DARK, inset=2)
-        # Rune ring in the upper half; the gem sits in the middle of it.
-        center_column = width // 2
-        center_row = max(4, height // 3)
-        radius = max(2, min(width, height) // 5)
-        for row in range(height):
-            for column in range(width):
-                distance = ((column - center_column) ** 2 + (row - center_row) ** 2) ** 0.5
-                if abs(distance - radius) < 0.9:
-                    painter.blend_px(column, row, SOUL, 0.55)
-                elif distance < radius - 1:
-                    painter.blend_px(column, row, OBSIDIAN_DARK, 0.5)
-        # Gem seal: soul fire behind faceted glass.
-        gem_row = center_row
-        for offset in range(-2, 3):
-            for row_offset in range(-2, 3):
-                if abs(offset) + abs(row_offset) <= 2:
-                    painter.px(
-                        max(0, min(width - 1, center_column + offset)),
-                        max(0, min(height - 1, gem_row + row_offset)),
-                        SOUL_LIGHT if abs(offset) + abs(row_offset) < 2 else SOUL,
-                    )
-        painter.px(center_column, gem_row - 2, SOUL_PALE)
-        painter.px(center_column, gem_row + 2, CRYSTAL_DARK)
-        # Netherite bands and a ring handle.
-        for row in (4, height - 5):
-            painter.box(2, row, width - 4, 1, NETHERITE)
-            painter.box(2, row + 1, width - 4, 1, NETHERITE_LIGHT)
-            painter.rivets(GOLD, spacing=4, inset=3)
-        handle_column = 2 if hinge_left else width - 3
-        for row in range(height // 2 - 2, height // 2 + 3):
-            painter.px(min(width - 1, handle_column), row, GOLD_LIGHT)
-        painter.bevel(CRYSTAL_DARK, OBSIDIAN_DARK, alpha=150)
 
-    return paint
+def patch(color, key: str, size=(1, 1)) -> Face:
+    return Face(paint=flat(color), size=size, share=f"flat:{key}")
+
+
+HIDDEN_FLAT = lambda: patch(HIDDEN, "hidden")  # noqa: E731
+DARK_FLAT = lambda: patch(IRON_BLACK, "iron_black")  # noqa: E731
+
+
+def clear(painter) -> None:
+    painter.clear()
+
+
+CLEAR_FLAT = lambda: Face(paint=clear, size=(1, 1), share="flat:clear")  # noqa: E731
+
+
+def gold_band(painter) -> None:
+    """Gold inlay band with soul flecks caught in the metal."""
+    gold_trim(GOLD, light=GOLD_LIGHT)(painter)
+    width, height = painter.rect.width, painter.rect.height
+    for column in range(1, max(1, width - 1), 3):
+        if painter.rng.below(0.5):
+            painter.px(column, max(1, height // 2), mix(GOLD_LIGHT, SOUL_PALE, 0.5))
+    painter.bevel(GOLD_LIGHT, shade(GOLD, -0.5), alpha=150)
+
+
+def netherite_band(painter) -> None:
+    netherite_plate(NETHERITE, light=NETHERITE_LIGHT)(painter)
+    width, height = painter.rect.width, painter.rect.height
+    painter.box(0, 0, width, 1, mix(NETHERITE_LIGHT, GOLD, 0.25))
+    painter.box(0, height - 1, width, 1, IRON_BLACK)
+
+
+def shrine_wall(painter) -> None:
+    """Buttressed obsidian wall with a gold seam."""
+    obsidian(OBSIDIAN, facet=OBSIDIAN_FACET)(painter)
+    width, height = painter.rect.width, painter.rect.height
+    painter.box(0, height // 2 - 1, width, 2, shade(GOLD, -0.35))
+    painter.box(0, height // 2 - 1, width, 1, GOLD)
+    for column in range(1, width, 4):
+        painter.vline(column, 0, height, shade(OBSIDIAN_DARK, -0.1))
+        painter.vline(min(width - 1, column + 1), 0, height, shade(OBSIDIAN_LIGHT, 0.1))
+    painter.bevel(OBSIDIAN_LIGHT, IRON_BLACK, alpha=150)
+
+
+def door_face(painter) -> None:
+    """The shrine door: gold-framed obsidian with a soul sigil."""
+    obsidian(OBSIDIAN_DARK, facet=OBSIDIAN_FACET)(painter)
+    width, height = painter.rect.width, painter.rect.height
+    painter.outline(GOLD, 0)
+    painter.outline(mix(GOLD, OBSIDIAN_DARK, 0.4), 1)
+    # Sigil: a diamond of soul light with a bright core.
+    center_x, center_y = width // 2, height // 2
+    radius = max(2, min(width, height) // 4)
+    for step in range(radius):
+        painter.px(center_x - step, center_y - radius + step, SOUL_LIGHT)
+        painter.px(center_x + step, center_y - radius + step, SOUL_LIGHT)
+        painter.px(center_x - step, center_y + radius - step, SOUL_LIGHT)
+        painter.px(center_x + step, center_y + radius - step, SOUL_LIGHT)
+    painter.box(center_x - radius // 2, center_y - radius // 2, max(1, radius), max(1, radius), SOUL_PALE)
+    for row in range(2, height - 2, 4):
+        painter.px(1, row, GOLD_LIGHT)
+        painter.px(max(0, width - 2), row, shade(GOLD_LIGHT, -0.2))
+    painter.bevel(GOLD_LIGHT, IRON_BLACK, alpha=160)
+
+
+def door_back(painter) -> None:
+    """Inside of the shrine door."""
+    painter.gradient_v(shade(OBSIDIAN_DARK, -0.1), shade(IRON_BLACK, 0.1))
+    painter.noise(OBSIDIAN_DARK, [SOUL, IRON_BLACK], density=0.18)
+    for row in range(1, painter.rect.height, 3):
+        painter.hline(0, row, painter.rect.width, shade(SOUL, -0.55))
+    painter.bevel(OBSIDIAN_LIGHT, IRON_BLACK, alpha=120)
+
+
+def recess_face(painter) -> None:
+    """Interior of the reliquary: a void lit from below."""
+    painter.fill(RECESS)
+    width, height = painter.rect.width, painter.rect.height
+    painter.gradient_v(shade(SOUL, -0.72), RECESS)
+    for column in range(0, width, 2):
+        painter.vline(column, height // 2, max(1, height // 2), shade(SOUL, -0.45))
+    for row in range(0, height, 3):
+        painter.hline(0, row, width, shade(SOUL, -0.6))
+    painter.bevel(SOUL, IRON_BLACK, alpha=90)
+
+
+def lantern_head(painter) -> None:
+    width, height = painter.rect.width, painter.rect.height
+    painter.fill(STEEL_DARK)
+    inner_width = max(1, width - 2)
+    inner_height = max(1, height - 3)
+    painter.box(1, 1, inner_width, inner_height, shade(SOUL, -0.3))
+    painter.box(1, 2, inner_width, max(1, inner_height - 2), mix(SOUL, SOUL_PALE, 0.45))
+    painter.vline(max(1, width // 2), 1, inner_height, SOUL_PALE)
+    painter.box(0, 0, width, 1, GOLD)
+    painter.box(0, height - 1, width, 1, IRON_BLACK)
+    painter.bevel(GOLD_LIGHT, IRON_BLACK, alpha=140)
+
+
+def gold_links(painter) -> None:
+    """Gold chain silhouette with transparent gaps."""
+    width, height = painter.rect.width, painter.rect.height
+    painter.clear()
+    link = max(3, height // 7)
+    for index in range(0, height, link):
+        wide = (index // link) % 2 == 0
+        left = 0 if wide or width < 3 else 1
+        right = width if wide or width < 3 else width - 1
+        for row in range(index, min(height, index + link)):
+            painter.box(left, row, max(1, right - left), 1, shade(GOLD, -0.2))
+        painter.box(left, index, max(1, right - left), 1, GOLD_LIGHT)
+        painter.box(left, min(height - 1, index + link - 1), max(1, right - left), 1, shade(GOLD, -0.5))
+        painter.px(min(width - 1, left), index + 1, mix(GOLD_LIGHT, (255, 255, 255, 255), 0.35))
+
+
+def cracked_obsidian(seed: int, count: int = 5):
+    return cracks(seed, count=count, color=mix(SOUL, IRON_BLACK, 0.6), glow=SOUL_LIGHT)
 
 
 def build() -> DeviceArt:
     model = Model(
         identifier="geometry.cc_black_reliquary",
-        texture_width=64,
-        texture_height=128,
-        visible_bounds=(2.4, 3.2),
-        visible_offset=(0.0, 1.6, 0.0),
+        texture_width=128,
+        texture_height=256,
     )
+    obsidian_face = obsidian(OBSIDIAN_DARK, facet=OBSIDIAN_FACET)
+    facet_top = obsidian(OBSIDIAN, facet=OBSIDIAN_FACET)
+    crystal_face = crystal(CRYSTAL, light=CRYSTAL_LIGHT, dark=CRYSTAL_DARK)
+    crystal_pale = crystal(CRYSTAL_LIGHT, light=(238, 222, 255, 255), dark=CRYSTAL)
 
-    # ------------------------------------------------------------- plinth --
+    # ---------------------------------------------------------------- base --
     base = model.bone("base", [0, 0, 0])
     base.cube(
-        [-8, 0, -8], [16, 3, 16],
+        [-13, 0, -13], [26, 3, 26],  # bottom step
         {
-            "up": shared_face(obsidian(OBSIDIAN, facet=OBSIDIAN_FACET), "reliquary_plinth_top"),
-            "north": shared_face(gold_trim(), "reliquary_gold"),
-            "south": shared_face(gold_trim(), "reliquary_gold"),
-            "east": shared_face(gold_trim(), "reliquary_gold"),
-            "west": shared_face(gold_trim(), "reliquary_gold"),
-            "down": shared_face(obsidian(OBSIDIAN_DARK, facet=OBSIDIAN), "reliquary_plinth_bottom"),
+            "up": face(facet_top),
+            "north": face(obsidian_face, share="obsidian_side"),
+            "south": face(obsidian_face, share="obsidian_side"),
+            "east": face(obsidian_face, share="obsidian_side"),
+            "west": face(obsidian_face, share="obsidian_side"),
+            "down": HIDDEN_FLAT(),
         },
     )
-    # Netherite corner posts.
-    for column, row in ((-8, -8), (6, -8), (-8, 6), (6, 6)):
-        base.cube(
-            [column, 3, row], [2, 21, 2],
-            {
-                "north": shared_face(netherite_plate(), "reliquary_post"),
-                "south": shared_face(netherite_plate(), "reliquary_post"),
-                "east": shared_face(netherite_plate(), "reliquary_post"),
-                "west": shared_face(netherite_plate(), "reliquary_post"),
-                "up": flat_face(NETHERITE_LIGHT, "netherite_light"),
-                "down": flat_face(IRON_BLACK, "iron_black"),
-            },
-        )
-    # Back wall and side walls.
     base.cube(
-        [-6, 3, 6], [12, 21, 2],
+        [-11, 3, -11], [22, 4, 22],  # second step
         {
-            "north": shared_face(obsidian(OBSIDIAN_LIGHT, facet=OBSIDIAN_FACET), "reliquary_wall"),
-            "south": shared_face(obsidian(OBSIDIAN_LIGHT, facet=OBSIDIAN_FACET), "reliquary_wall"),
-            "east": flat_face(OBSIDIAN_DARK, "obsidian_dark"),
-            "west": flat_face(OBSIDIAN_DARK, "obsidian_dark"),
-            "up": flat_face(OBSIDIAN_DARK, "obsidian_dark"),
-            "down": flat_face(OBSIDIAN_DARK, "obsidian_dark"),
+            "up": face(facet_top),
+            "north": face(netherite_band, share="netherite_side"),
+            "south": face(netherite_band, share="netherite_side"),
+            "east": face(netherite_band, share="netherite_side"),
+            "west": face(netherite_band, share="netherite_side"),
+            "down": HIDDEN_FLAT(),
         },
     )
-    for column in (-6, 4):
-        base.cube(
-            [column, 3, -6], [2, 21, 12],
-            {
-                "north": flat_face(OBSIDIAN_DARK, "obsidian_dark"),
-                "south": flat_face(OBSIDIAN_DARK, "obsidian_dark"),
-                "east": shared_face(obsidian(OBSIDIAN_LIGHT, facet=OBSIDIAN_FACET), "reliquary_wall"),
-                "west": shared_face(obsidian(OBSIDIAN_LIGHT, facet=OBSIDIAN_FACET), "reliquary_wall"),
-                "up": flat_face(OBSIDIAN_DARK, "obsidian_dark"),
-                "down": flat_face(OBSIDIAN_DARK, "obsidian_dark"),
-            },
-        )
-
-    # ----------------------------------------------------------- rune disc --
-    rune = model.bone("rune_disc", [0, 3, 0], parent="base")
-    rune.cube(
-        [-5, 3, -5], [10, 1, 10],
+    base.cube(
+        [-12, 7, -12], [24, 2, 24],  # gold ledge
         {
-            "up": shared_face(_rune_disc(), "reliquary_rune"),
-            "down": flat_face(OBSIDIAN_DARK, "obsidian_dark"),
-            "north": shared_face(gold_trim(GOLD, light=GOLD_LIGHT), "reliquary_rune_edge"),
-            "south": shared_face(gold_trim(GOLD, light=GOLD_LIGHT), "reliquary_rune_edge"),
-            "east": shared_face(gold_trim(GOLD, light=GOLD_LIGHT), "reliquary_rune_edge"),
-            "west": shared_face(gold_trim(GOLD, light=GOLD_LIGHT), "reliquary_rune_edge"),
+            "up": face(gold_band, size=(24, 24)),
+            "north": face(gold_band, size=(24, 2), share="gold_edge_wide"),
+            "south": face(gold_band, size=(24, 2), share="gold_edge_wide"),
+            "east": face(gold_band, size=(24, 2), share="gold_edge_wide"),
+            "west": face(gold_band, size=(24, 2), share="gold_edge_wide"),
+            "down": HIDDEN_FLAT(),
         },
     )
 
-    # ------------------------------------------------------------ the lid --
-    top = model.bone("top", [0, 24, 0], parent="base")
-    top.cube(
-        [-8, 24, -8], [16, 3, 16],
-        {
-            "up": shared_face(obsidian(OBSIDIAN, facet=OBSIDIAN_LIGHT), "reliquary_lid_top"),
-            "north": shared_face(gold_trim(), "reliquary_gold"),
-            "south": shared_face(gold_trim(), "reliquary_gold"),
-            "east": shared_face(gold_trim(), "reliquary_gold"),
-            "west": shared_face(gold_trim(), "reliquary_gold"),
-            "down": shared_face(obsidian(OBSIDIAN_DARK, facet=OBSIDIAN), "reliquary_lid_under"),
-        },
-    )
-    # Eave trim so the lid overhangs the doors.
-    for row in (-9, 7):
-        top.cube(
-            [-9, 22, row], [18, 2, 2],
-            {
-                "north": shared_face(netherite_plate(), "reliquary_eave"),
-                "south": shared_face(netherite_plate(), "reliquary_eave"),
-                "east": flat_face(NETHERITE, "netherite"),
-                "west": flat_face(NETHERITE, "netherite"),
-                "up": flat_face(NETHERITE_LIGHT, "netherite_light"),
-                "down": flat_face(IRON_BLACK, "iron_black"),
-            },
-        )
-
-    # -------------------------------------------------------------- doors --
-    for name, mirrored in (("door_left", False), ("door_right", True)):
-        hinge = -8 if not mirrored else 8
-        door = model.bone(name, [hinge, 3, -8], parent="base")
-        door.cube(
-            [-8 if not mirrored else 0, 3, -8], [8, 21, 2],
-            {
-                "north": shared_face(_door(not mirrored), "reliquary_door", flip_u=mirrored),
-                "south": shared_face(obsidian(OBSIDIAN_DARK, facet=OBSIDIAN), "reliquary_door_inner", flip_u=mirrored),
-                "east": flat_face(OBSIDIAN_DARK, "obsidian_dark"),
-                "west": flat_face(OBSIDIAN_DARK, "obsidian_dark"),
-                "up": flat_face(OBSIDIAN_DARK, "obsidian_dark"),
-                "down": flat_face(OBSIDIAN_DARK, "obsidian_dark"),
-            },
-        )
-        # Hinge straps.
-        for row in (6, 18):
-            door.cube(
-                [-8 if not mirrored else 5, row, -9], [3, 2, 1],
-                {
-                    "north": shared_face(gold_trim(), "reliquary_hinge"),
-                    "south": flat_face(OBSIDIAN_DARK, "obsidian_dark"),
-                    "east": flat_face(GOLD, "gold"),
-                    "west": flat_face(GOLD, "gold"),
-                    "up": flat_face(GOLD_LIGHT, "gold_light"),
-                    "down": flat_face(OBSIDIAN_DARK, "obsidian_dark"),
-                },
-            )
-
-    # ------------------------------------------------------------ crystal --
-    body = model.bone("crystal", [0, 29, 0], parent="top")
+    # ---------------------------------------------------------------- body --
+    body = model.bone("body", [0, 9, 0], parent="base")
     body.cube(
-        [-2, 27, -2], [4, 5, 4],
+        [-10, 9, -10], [20, 16, 20],
         {
-            "north": shared_face(crystal(), "reliquary_crystal"),
-            "south": shared_face(crystal(), "reliquary_crystal"),
-            "east": shared_face(crystal(), "reliquary_crystal"),
-            "west": shared_face(crystal(), "reliquary_crystal"),
-            "up": shared_face(crystal(CRYSTAL_LIGHT, light=(255, 255, 255, 255), dark=CRYSTAL), "reliquary_crystal_top"),
-            "down": shared_face(crystal(CRYSTAL_DARK, light=CRYSTAL, dark=OBSIDIAN_DARK), "reliquary_crystal_bottom"),
+            "up": face(steel_panel(STEEL_DARK, bands=2, rust=0.4)),
+            "north": face(shrine_wall),
+            "south": face(shrine_wall, share="shrine_wall"),
+            "east": face(shrine_wall, share="shrine_wall"),
+            "west": face(shrine_wall, share="shrine_wall"),
+            "down": HIDDEN_FLAT(),
         },
     )
-    for column, row in ((-3, -3), (1, -3), (-3, 1), (1, 1)):
+    # Corner buttresses read the shrine as masonry rather than a tower.
+    for x, z in ((-12, -12), (-12, 10), (10, -12), (10, 10)):
         body.cube(
-            [column, 31, row], [2, 2, 2],
+            [x, 9, z], [2, 12, 2],
             {
-                "north": shared_face(crystal(CRYSTAL_LIGHT, light=(255, 255, 255, 255), dark=CRYSTAL), "reliquary_shard"),
-                "south": shared_face(crystal(CRYSTAL_LIGHT, light=(255, 255, 255, 255), dark=CRYSTAL), "reliquary_shard"),
-                "east": shared_face(crystal(CRYSTAL_LIGHT, light=(255, 255, 255, 255), dark=CRYSTAL), "reliquary_shard"),
-                "west": shared_face(crystal(CRYSTAL_LIGHT, light=(255, 255, 255, 255), dark=CRYSTAL), "reliquary_shard"),
-                "up": shared_face(crystal(SOUL_PALE, light=(255, 255, 255, 255), dark=CRYSTAL_LIGHT), "reliquary_shard_top"),
-                "down": flat_face(CRYSTAL_DARK, "crystal_dark"),
+                "up": HIDDEN_FLAT(),
+                "north": face(obsidian_face, share="post_side"),
+                "south": face(obsidian_face, share="post_side"),
+                "east": face(obsidian_face, share="post_side"),
+                "west": face(obsidian_face, share="post_side"),
+                "down": HIDDEN_FLAT(),
+            },
+        )
+    for row in (11, 21):
+        body.cube(
+            [-10.4, row, -10.4], [20.8, 2, 20.8],  # gold bands
+            {
+                "up": face(gold_band, size=(21, 21)),
+                "north": face(gold_band, size=(21, 2), share="gold_edge_band"),
+                "south": face(gold_band, size=(21, 2), share="gold_edge_band"),
+                "east": face(gold_band, size=(21, 2), share="gold_edge_band"),
+                "west": face(gold_band, size=(21, 2), share="gold_edge_band"),
+                "down": HIDDEN_FLAT(),
+            },
+        )
+    # The soul recess the door opens onto, on the camera-facing north side.
+    body.cube(
+        [-6, 11, -11], [12, 12, 1],
+        {
+            "up": HIDDEN_FLAT(),
+            "north": face(recess_face, size=(12, 12)),
+            "south": HIDDEN_FLAT(),
+            "east": face(recess_face, size=(1, 12), share="recess_side"),
+            "west": face(recess_face, size=(1, 12), share="recess_side"),
+            "down": face(recess_face, size=(12, 1), share="recess_floor"),
+        },
+    )
+
+    # --------------------------------------------------------------- roof ---
+    roof = model.bone("roof", [0, 25, 0], parent="body")
+    roof.cube(
+        [-13, 25, -13], [26, 3, 26],
+        {
+            "up": face(facet_top),
+            "north": face(netherite_band, share="netherite_side"),
+            "south": face(netherite_band, share="netherite_side"),
+            "east": face(netherite_band, share="netherite_side"),
+            "west": face(netherite_band, share="netherite_side"),
+            "down": HIDDEN_FLAT(),
+        },
+    )
+    for x, z in ((-12, 11), (10, 11), (-12, -11), (10, -11)):
+        roof.cube(
+            [x + 0.5, 28, z + 0.5], [1, 5, 1],  # gold corner finials
+            {
+                "up": face(gold_band, size=(1, 1), share="finial_tip"),
+                "north": face(gold_band, share="finial", size=(1, 5)),
+                "south": face(gold_band, share="finial", size=(1, 5)),
+                "east": face(gold_band, share="finial", size=(1, 5)),
+                "west": face(gold_band, share="finial", size=(1, 5)),
+                "down": HIDDEN_FLAT(),
             },
         )
 
-    # ------------------------------------------------------------ braziers --
-    for name, column, row in (("brazier_left", -7, 5), ("brazier_right", 4, 5)):
-        brazier = model.bone(name, [column + 1.5, 24, row + 1.5], parent="top")
-        brazier.cube(
-            [column, 24, row], [3, 3, 3],
+    # ------------------------------------------------------------- crystal --
+    crystal_bone = model.bone("crystal", [0, 33, 0], parent="roof")
+    crystal_bone.cube(
+        [-4, 28, -4], [8, 8, 8],
+        {
+            "up": face(crystal_face),
+            "north": face(crystal_face, share="crystal_face"),
+            "south": face(crystal_face, share="crystal_face"),
+            "east": face(crystal_face, share="crystal_face"),
+            "west": face(crystal_face, share="crystal_face"),
+            "down": face(crystal(CRYSTAL_DARK, light=CRYSTAL, dark=CRYSTAL_DARK), share="crystal_under"),
+        },
+    )
+    crystal_bone.cube(
+        [-2.5, 36, -2.5], [5, 3, 5],
+        {
+            "up": face(crystal_pale),
+            "north": face(crystal_pale, share="crystal_top"),
+            "south": face(crystal_pale, share="crystal_top"),
+            "east": face(crystal_pale, share="crystal_top"),
+            "west": face(crystal_pale, share="crystal_top"),
+            "down": HIDDEN_FLAT(),
+        },
+    )
+
+    # ----------------------------------------------------------------- door --
+    door = model.bone("door", [-7, 9, -11], parent="body")
+    door.cube(
+        [-7, 9, -11], [14, 14, 2],
+        {
+            "up": face(gold_band, size=(14, 2)),
+            "north": face(door_face),
+            "south": face(door_back),
+            "east": face(shrine_wall, size=(2, 14), share="wall_edge"),
+            "west": face(shrine_wall, size=(2, 14), share="wall_edge"),
+            "down": HIDDEN_FLAT(),
+        },
+    )
+    latch = model.bone("latch", [5, 15, -12], parent="door")
+    latch.cube(
+        [5, 13, -12], [3, 4, 2],
+        {
+            "up": face(steel_panel(STEEL_MID, bands=1, seams=1, rivets=False)),
+            "north": face(steel_panel(STEEL, bands=1, seams=1, rivets=False)),
+            "south": face(steel_panel(STEEL_DARK, bands=1, seams=1, rivets=False), share="latch_back"),
+            "east": face(steel_panel(STEEL_DARK, bands=1, seams=1, rivets=False), share="latch_side"),
+            "west": face(steel_panel(STEEL_DARK, bands=1, seams=1, rivets=False), share="latch_side"),
+            "down": HIDDEN_FLAT(),
+        },
+    )
+
+    # -------------------------------------------------------------- lantern --
+    lantern = model.bone("lantern", [0, 22, -11], parent="body")
+    lantern.cube(
+        [-1, 19, -11.5], [2, 8, 1],  # gold chain above the door
+        {
+            "up": HIDDEN_FLAT(),
+            "north": face(gold_links),
+            "south": face(gold_links, share="gold_links"),
+            "east": face(gold_links, share="gold_links"),
+            "west": face(gold_links, share="gold_links"),
+            "down": HIDDEN_FLAT(),
+        },
+    )
+    lantern.cube(
+        [-3, 15, -12], [6, 4, 4],
+        {
+            "up": face(gold_band, size=(6, 4)),
+            "north": face(lantern_head),
+            "south": face(lantern_head, share="lantern"),
+            "east": face(lantern_head, share="lantern"),
+            "west": face(lantern_head, share="lantern"),
+            "down": face(lantern_head, share="lantern"),
+        },
+    )
+
+    # ------------------------------------------------------------ gold swags --
+    swag = model.bone("swags", [0, 25, 0], parent="roof")
+    for side, column in (("left", -11), ("right", 10)):
+        swag.cube(
+            [column, 19, 6], [1, 7, 1],
             {
-                "north": shared_face(steel_plate(STEEL_DARK, rivets=True, rust=0.5), "reliquary_brazier"),
-                "south": shared_face(steel_plate(STEEL_DARK, rivets=True, rust=0.5), "reliquary_brazier"),
-                "east": shared_face(steel_plate(STEEL_DARK, rivets=True, rust=0.5), "reliquary_brazier"),
-                "west": shared_face(steel_plate(STEEL_DARK, rivets=True, rust=0.5), "reliquary_brazier"),
-                "up": shared_face(soul_glow(SOUL), "reliquary_flame"),
-                "down": flat_face(IRON_BLACK, "iron_black"),
-            },
-        )
-    # Hanging chains at the front corners.
-    for name, column in (("chain_left", -9), ("chain_right", 8)):
-        link = model.bone(name, [column + 0.5, 23, -9], parent="top")
-        link.cube(
-            [column, 13, -9], [1, 10, 1],
-            {
-                "north": shared_face(chain(STEEL_DARK, dark=IRON_BLACK, light=STEEL_LIGHT), "reliquary_chain"),
-                "south": shared_face(chain(STEEL_DARK, dark=IRON_BLACK, light=STEEL_LIGHT), "reliquary_chain"),
-                "east": shared_face(chain(STEEL_DARK, dark=IRON_BLACK, light=STEEL_LIGHT), "reliquary_chain"),
-                "west": shared_face(chain(STEEL_DARK, dark=IRON_BLACK, light=STEEL_LIGHT), "reliquary_chain"),
-                "up": flat_face(IRON_BLACK, "iron_black"),
-                "down": flat_face(IRON_BLACK, "iron_black"),
+                "up": HIDDEN_FLAT(),
+                "north": face(gold_links, share="gold_links"),
+                "south": face(gold_links, share="gold_links"),
+                "east": face(gold_links, share="gold_links"),
+                "west": face(gold_links, share="gold_links"),
+                "down": HIDDEN_FLAT(),
             },
         )
 
-    animations = _animations()
-    art = DeviceArt(
+    # ----------------------------------------------------------- wear plates --
+    wear_1 = model.bone("wear_1_body", [13, 22, 0], parent="body")
+    wear_1.cube(
+        [12, 16, -8], [1, 10, 15],
+        {
+            "up": CLEAR_FLAT(),
+            "north": CLEAR_FLAT(),
+            "south": CLEAR_FLAT(),
+            "east": face(cracked_obsidian(41, 6)),
+            "west": CLEAR_FLAT(),
+            "down": CLEAR_FLAT(),
+        },
+    )
+    wear_2 = model.bone("wear_2_roof", [0, 28, 0], parent="roof")
+    wear_2.cube(
+        [-9, 28, 2], [17, 1, 8],
+        {
+            "up": face(cracked_obsidian(42, 5)),
+            "north": CLEAR_FLAT(),
+            "south": CLEAR_FLAT(),
+            "east": CLEAR_FLAT(),
+            "west": CLEAR_FLAT(),
+            "down": CLEAR_FLAT(),
+        },
+    )
+    wear_3 = model.bone("wear_3_door", [0, 23, -11], parent="door")
+    wear_3.cube(
+        [-6, 22, -11.2], [12, 1, 4],
+        {
+            "up": CLEAR_FLAT(),
+            "north": face(cracked_obsidian(43, 5)),
+            "south": CLEAR_FLAT(),
+            "east": CLEAR_FLAT(),
+            "west": CLEAR_FLAT(),
+            "down": CLEAR_FLAT(),
+        },
+    )
+
+    return scale_device(DeviceArt(
         slug="black_reliquary",
         display_name="The Black Reliquary",
         model=model,
-        animations=animations,
-        state_animations={},
-        particle="minecraft:soul_particle",
-        accent_particle="minecraft:basic_smoke_particle",
-    )
-    return finalize(art)
+        animations=animations(),
+        particle="minecraft:basic_smoke_particle",
+        accent_particle="minecraft:soul_particle",
+    ), SCALE)
 
 
-def _rune_disc():
-    """A turning gilded rune disc; the gaps stay transparent."""
-
-    def paint(painter) -> None:
-        width, height = painter.rect.width, painter.rect.height
-        center = (width - 1) / 2, (height - 1) / 2
-        for row in range(height):
-            for column in range(width):
-                distance = ((column - center[0]) ** 2 + (row - center[1]) ** 2) ** 0.5
-                if distance > width / 2 - 0.5:
-                    continue
-                painter.px(column, row, OBSIDIAN_DARK if distance < width / 2 - 1.2 else GOLD)
-        for row_index, line in enumerate(RUNE_DISC):
-            if row_index >= height:
-                break
-            for column_index, char in enumerate(line):
-                if column_index >= width:
-                    break
-                if char == "#":
-                    painter.blend_px(column_index, row_index, SOUL, 0.75)
-                elif char == "G":
-                    painter.blend_px(column_index, row_index, GOLD_LIGHT, 0.9)
-        painter.noise(OBSIDIAN, [OBSIDIAN_LIGHT, SOUL], density=0.12)
-
-    return paint
+# --------------------------------------------------------------- animations --
+def animations() -> list[Animation]:
+    return [
+        _idle(),
+        _detect(),
+        _close(),
+        _closed(),
+        _torture(1.0, "animation.cc_black_reliquary.torture"),
+        _torture(0.55, "animation.cc_black_reliquary.torture_high"),
+        _strain(),
+        _burst(),
+        _open(),
+        _released(),
+        _broken(),
+    ]
 
 
-def _animations() -> list[Animation]:
-    animations: list[Animation] = []
+def _door(animation: Animation, values) -> None:
+    """The door hinges on its west edge and swings clear of the shrine face."""
+    for time, angle in values:
+        animation.key("door", "rotation", time, (0, angle, 0))
 
-    idle = Animation("animation.cc_black_reliquary.idle", 4.0, loop=True)
+
+def _idle() -> Animation:
+    idle = Animation("animation.cc_black_reliquary.idle", 5.0, loop=True)
+    _door(idle, ((0.0, DOOR_SHUT), (5.0, DOOR_SHUT)))
+    for time, scale in ((0.0, 1.0), (2.5, 1.06), (5.0, 1.0)):
+        idle.key("crystal", "scale", time, (scale, scale, scale))
     idle.key("crystal", "rotation", 0.0, (0, 0, 0))
-    idle.key("crystal", "rotation", 4.0, (0, 360, 0))
-    idle.key("crystal", "position", 0.0, (0, 0, 0))
-    idle.key("crystal", "position", 2.0, (0, 0.8, 0))
-    idle.key("crystal", "position", 4.0, (0, 0, 0))
-    idle.key("rune_disc", "rotation", 0.0, (0, 0, 0))
-    idle.key("rune_disc", "rotation", 4.0, (0, 45, 0))
-    idle.key("brazier_left", "scale", 0.0, (1, 1, 1))
-    idle.key("brazier_left", "scale", 1.0, (1, 1.12, 1))
-    idle.key("brazier_left", "scale", 2.0, (1, 0.96, 1))
-    idle.key("brazier_left", "scale", 3.0, (1, 1.08, 1))
-    idle.key("brazier_left", "scale", 4.0, (1, 1, 1))
-    idle.key("brazier_right", "scale", 0.0, (1, 1, 1))
-    idle.key("brazier_right", "scale", 1.4, (1, 1.14, 1))
-    idle.key("brazier_right", "scale", 2.4, (1, 0.94, 1))
-    idle.key("brazier_right", "scale", 3.4, (1, 1.06, 1))
-    idle.key("brazier_right", "scale", 4.0, (1, 1, 1))
-    idle.key("chain_left", "rotation", 0.0, (0, 0, 0))
-    idle.key("chain_left", "rotation", 2.0, (0, 0, 3))
-    idle.key("chain_left", "rotation", 4.0, (0, 0, 0))
-    idle.key("chain_right", "rotation", 0.0, (0, 0, 0))
-    idle.key("chain_right", "rotation", 2.0, (0, 0, -3))
-    idle.key("chain_right", "rotation", 4.0, (0, 0, 0))
-    animations.append(idle)
+    idle.key("crystal", "rotation", 5.0, (0, 360, 0))
+    for time, angle in ((0.0, 3), (2.5, -3), (5.0, 3)):
+        idle.key("lantern", "rotation", time, (angle, 0, 0))
+    for time, angle in ((0.0, 2), (2.6, -2), (5.0, 2)):
+        idle.key("swags", "rotation", time, (0, 0, angle))
+    idle.key("body", "position", 0.0, (0, 0, 0))
+    idle.key("body", "position", 2.5, (0, 0.2, 0))
+    idle.key("body", "position", 5.0, (0, 0, 0))
+    return idle
 
+
+def _detect() -> Animation:
     detect = Animation("animation.cc_black_reliquary.detect", CAPTURE_DELAY, loop=True)
-    detect.key("door_left", "rotation", 0.0, (0, 0, 0))
-    detect.key("door_left", "rotation", 0.8, (0, -24, 0))
-    detect.key("door_left", "rotation", 1.75, (0, -21, 0))
-    detect.key("door_right", "rotation", 0.0, (0, 0, 0))
-    detect.key("door_right", "rotation", 0.8, (0, 24, 0))
-    detect.key("door_right", "rotation", 1.75, (0, 21, 0))
-    detect.key("crystal", "scale", 0.0, (1, 1, 1))
-    detect.key("crystal", "scale", 0.9, (1.25, 1.25, 1.25))
-    detect.key("crystal", "scale", 1.75, (1.35, 1.35, 1.35))
+    _door(detect, ((0.0, DOOR_SHUT), (CAPTURE_DELAY, -18)))
+    for time, scale in ((0.0, 1.0), (CAPTURE_DELAY, 1.45)):
+        detect.key("crystal", "scale", time, (scale, scale, scale))
+    for time, angle in ((0.0, 3), (CAPTURE_DELAY, -12)):
+        detect.key("lantern", "rotation", time, (angle, 0, 0))
+    detect.key("lantern", "position", 0.0, (0, 0, 0))
+    detect.key("lantern", "position", CAPTURE_DELAY, (0, 3, 0))
+    for time, angle in ((0.0, 2), (CAPTURE_DELAY, -6)):
+        detect.key("swags", "rotation", time, (0, 0, angle))
     detect.key("crystal", "rotation", 0.0, (0, 0, 0))
-    detect.key("crystal", "rotation", 1.75, (0, 140, 0))
-    detect.key("rune_disc", "rotation", 0.0, (0, 0, 0))
-    detect.key("rune_disc", "rotation", 1.75, (0, 90, 0))
-    detect.key("brazier_left", "scale", 0.0, (1, 1, 1))
-    detect.key("brazier_left", "scale", 0.9, (1.2, 1.4, 1.2))
-    detect.key("brazier_left", "scale", 1.75, (1.3, 1.5, 1.3))
-    detect.key("brazier_right", "scale", 0.0, (1, 1, 1))
-    detect.key("brazier_right", "scale", 0.9, (1.2, 1.4, 1.2))
-    detect.key("brazier_right", "scale", 1.75, (1.3, 1.5, 1.3))
-    animations.append(detect)
+    detect.key("crystal", "rotation", CAPTURE_DELAY, (0, 220, 0))
+    detect.key("latch", "position", 0.0, (0, 0, 0))
+    detect.key("latch", "position", CAPTURE_DELAY, (0, 2, 0))
+    return detect
 
+
+def _close() -> Animation:
     close = Animation("animation.cc_black_reliquary.close", CLOSE_DURATION, loop=False)
-    close.key("door_left", "rotation", 0.0, (0, -21, 0))
-    close.key("door_left", "rotation", 0.8, (0, 6, 0))
-    close.key("door_left", "rotation", 1.1, (0, -3, 0))
-    close.key("door_left", "rotation", 1.45, (0, 0, 0))
-    close.key("door_left", "rotation", CLOSE_DURATION, (0, 0, 0))
-    close.key("door_right", "rotation", 0.0, (0, 21, 0))
-    close.key("door_right", "rotation", 0.8, (0, -6, 0))
-    close.key("door_right", "rotation", 1.1, (0, 3, 0))
-    close.key("door_right", "rotation", 1.45, (0, 0, 0))
-    close.key("door_right", "rotation", CLOSE_DURATION, (0, 0, 0))
-    close.key("crystal", "scale", 0.0, (1.35, 1.35, 1.35))
-    close.key("crystal", "scale", 0.8, (0.85, 1.3, 0.85))
-    close.key("crystal", "scale", 1.2, (1.1, 0.95, 1.1))
+    _door(close, ((0.0, -18), (0.5, 6), (0.75, -3), (1.0, 0), (CLOSE_DURATION, DOOR_SHUT)))
+    close.key("body", "rotation", 0.0, (0, 0, 0))
+    close.key("body", "rotation", 0.6, (0, 0, -2))
+    close.key("body", "rotation", 1.1, (0, 0, 1.2))
+    close.key("body", "rotation", CLOSE_DURATION, (0, 0, 0))
+    close.key("crystal", "scale", 0.0, (1.45, 1.45, 1.45))
+    close.key("crystal", "scale", 0.72, (0.7, 1.6, 0.7))
+    close.key("crystal", "scale", 1.2, (1, 1, 1))
     close.key("crystal", "scale", CLOSE_DURATION, (1, 1, 1))
-    close.key("crystal", "rotation", 0.0, (0, 140, 0))
-    close.key("crystal", "rotation", CLOSE_DURATION, (0, 500, 0))
-    close.key("base", "rotation", 0.0, (0, 0, 0))
-    close.key("base", "rotation", 0.8, (0, 0, 1.4))
-    close.key("base", "rotation", 1.3, (0, 0, -0.8))
-    close.key("base", "rotation", CLOSE_DURATION, (0, 0, 0))
-    close.key("brazier_left", "scale", 0.0, (1.3, 1.5, 1.3))
-    close.key("brazier_left", "scale", CLOSE_DURATION, (1, 1, 1))
-    close.key("brazier_right", "scale", 0.0, (1.3, 1.5, 1.3))
-    close.key("brazier_right", "scale", CLOSE_DURATION, (1, 1, 1))
-    animations.append(close)
+    close.key("crystal", "rotation", 0.0, (0, 220, 0))
+    close.key("crystal", "rotation", CLOSE_DURATION, (0, 300, 0))
+    close.key("latch", "position", 0.0, (0, 2, 0))
+    close.key("latch", "position", 0.7, (0, 0, 0))
+    close.key("latch", "position", CLOSE_DURATION, (0, 0, 0))
+    close.key("lantern", "rotation", 0.0, (-12, 0, 0))
+    close.key("lantern", "rotation", 0.6, (16, 0, 0))
+    close.key("lantern", "rotation", 1.2, (-6, 0, 0))
+    close.key("lantern", "rotation", CLOSE_DURATION, (-3, 0, 0))
+    close.key("lantern", "position", 0.0, (0, 3, 0))
+    close.key("lantern", "position", CLOSE_DURATION, (0, 0, 0))
+    close.key("swags", "rotation", 0.0, (-6, 0, 0))
+    close.key("swags", "rotation", 0.7, (4, 0, 0))
+    close.key("swags", "rotation", CLOSE_DURATION, (0, 0, 0))
+    return close
 
+
+def _closed() -> Animation:
     closed = Animation("animation.cc_black_reliquary.closed", CLOSED_PAUSE, loop=True)
-    closed.key("door_left", "rotation", 0.0, (0, 0, 0))
-    closed.key("door_left", "rotation", 0.25, (0, -0.8, 0))
-    closed.key("door_left", "rotation", 0.5, (0, 0, 0))
-    closed.key("door_right", "rotation", 0.0, (0, 0, 0))
-    closed.key("door_right", "rotation", 0.25, (0, 0.8, 0))
-    closed.key("door_right", "rotation", 0.5, (0, 0, 0))
+    _door(closed, ((0.0, 0), (0.25, -1.4), (0.5, 0)))
     closed.key("crystal", "scale", 0.0, (1, 1, 1))
-    closed.key("crystal", "scale", 0.5, (1.02, 1.02, 1.02))
-    animations.append(closed)
+    closed.key("crystal", "scale", 0.25, (1.1, 1.1, 1.1))
+    closed.key("crystal", "scale", 0.5, (1, 1, 1))
+    closed.key("lantern", "rotation", 0.0, (-3, 0, 0))
+    closed.key("lantern", "rotation", 0.25, (-6, 0, 0))
+    closed.key("lantern", "rotation", 0.5, (-3, 0, 0))
+    return closed
 
-    torture = Animation("animation.cc_black_reliquary.torture", TORTURE_INTERVAL, loop=True)
+
+def _torture(amplitude: float, identifier: str) -> Animation:
+    torture = Animation(identifier, TORTURE_INTERVAL, loop=True)
+    for time, angle in ((0.0, 0), (0.2 * amplitude, 2.2 * amplitude), (0.45 * amplitude, -2 * amplitude),
+                        (0.7 * amplitude, 1.2 * amplitude), (TORTURE_INTERVAL, 0)):
+        torture.key("body", "rotation", time, (0, 0, angle))
+    torture.key("body", "position", 0.0, (0, 0, 0))
+    torture.key("body", "position", 0.25 * amplitude, (0.4 * amplitude, 0, 0))
+    torture.key("body", "position", 0.6 * amplitude, (-0.4 * amplitude, 0, 0))
+    torture.key("body", "position", TORTURE_INTERVAL, (0, 0, 0))
+    # The crystal pulses with every soul drawn in.
+    pulses = 4
+    for index in range(pulses + 1):
+        time = TORTURE_INTERVAL * index / pulses
+        scale = 1.0 + 0.42 * amplitude * (index % 2)
+        torture.key("crystal", "scale", time, (scale, scale, scale))
     torture.key("crystal", "rotation", 0.0, (0, 0, 0))
-    torture.key("crystal", "rotation", 2.0, (0, 720, 0))
-    torture.key("crystal", "position", 0.0, (0, 0, 0))
-    torture.key("crystal", "position", 0.5, (0, 1.4, 0))
-    torture.key("crystal", "position", 1.0, (0, 0.2, 0))
-    torture.key("crystal", "position", 1.5, (0, 1.0, 0))
-    torture.key("crystal", "position", 2.0, (0, 0, 0))
-    torture.key("crystal", "scale", 0.0, (1, 1, 1))
-    torture.key("crystal", "scale", 1.0, (1.12, 1.12, 1.12))
-    torture.key("crystal", "scale", 2.0, (1, 1, 1))
-    torture.key("rune_disc", "rotation", 0.0, (0, 0, 0))
-    torture.key("rune_disc", "rotation", 2.0, (0, 90, 0))
-    torture.key("door_left", "rotation", 0.0, (0, 0, 0))
-    torture.key("door_left", "rotation", 0.6, (0, -2.6, 0))
-    torture.key("door_left", "rotation", 1.2, (0, 0.8, 0))
-    torture.key("door_left", "rotation", 2.0, (0, 0, 0))
-    torture.key("door_right", "rotation", 0.0, (0, 0, 0))
-    torture.key("door_right", "rotation", 0.6, (0, 2.6, 0))
-    torture.key("door_right", "rotation", 1.2, (0, -0.8, 0))
-    torture.key("door_right", "rotation", 2.0, (0, 0, 0))
-    torture.key("base", "rotation", 0.0, (0, 0, 0))
-    torture.key("base", "rotation", 0.4, (0, 0, 1.2))
-    torture.key("base", "rotation", 1.0, (0, 0, -1))
-    torture.key("base", "rotation", 1.6, (0, 0, 0))
-    torture.key("base", "rotation", 2.0, (0, 0, 0))
-    torture.key("brazier_left", "scale", 0.0, (1, 1.2, 1))
-    torture.key("brazier_left", "scale", 1.0, (1.1, 1.5, 1.1))
-    torture.key("brazier_left", "scale", 2.0, (1, 1.2, 1))
-    torture.key("brazier_right", "scale", 0.0, (1, 1.1, 1))
-    torture.key("brazier_right", "scale", 1.0, (1.05, 1.45, 1.05))
-    torture.key("brazier_right", "scale", 2.0, (1, 1.1, 1))
-    torture.key("chain_left", "rotation", 0.0, (0, 0, -4))
-    torture.key("chain_left", "rotation", 1.0, (0, 0, 5))
-    torture.key("chain_left", "rotation", 2.0, (0, 0, -4))
-    torture.key("chain_right", "rotation", 0.0, (0, 0, 4))
-    torture.key("chain_right", "rotation", 1.0, (0, 0, -5))
-    torture.key("chain_right", "rotation", 2.0, (0, 0, 4))
-    animations.append(torture)
+    torture.key("crystal", "rotation", TORTURE_INTERVAL, (0, 420 * amplitude, 0))
+    _door(torture, ((0.0, 0), (0.3 * amplitude, -2.2 * amplitude), (0.8 * amplitude, 1.2 * amplitude),
+                    (1.3 * amplitude, 0), (TORTURE_INTERVAL, 0)))
+    torture.key("lantern", "rotation", 0.0, (-3, 0, 0))
+    torture.key("lantern", "rotation", 0.4 * amplitude, (12 * amplitude, 0, -5))
+    torture.key("lantern", "rotation", 1.1 * amplitude, (-9 * amplitude, 0, 4))
+    torture.key("lantern", "rotation", TORTURE_INTERVAL, (-3, 0, 0))
+    torture.key("lantern", "position", 0.0, (0, 0, 0))
+    torture.key("lantern", "position", 0.5 * amplitude, (0, 0.6 * amplitude, 0))
+    torture.key("lantern", "position", TORTURE_INTERVAL, (0, 0, 0))
+    for time, angle in ((0.0, 0), (0.35 * amplitude, 6 * amplitude), (0.9 * amplitude, -4 * amplitude),
+                        (TORTURE_INTERVAL, 0)):
+        torture.key("swags", "rotation", time, (0, angle, 0))
+    return torture
 
-    strain = Animation("animation.cc_black_reliquary.strain", 0.6, loop=False)
-    for time, angle in ((0.0, 0), (0.08, 3.6), (0.16, -3.2), (0.26, 2.4), (0.36, -1.6), (0.5, 0.8), (0.6, 0)):
-        strain.key("base", "rotation", time, (0, 0, angle))
-    strain.key("door_left", "rotation", 0.0, (0, 0, 0))
-    strain.key("door_left", "rotation", 0.1, (0, -3, 0))
-    strain.key("door_left", "rotation", 0.3, (0, 0.8, 0))
-    strain.key("door_left", "rotation", 0.55, (0, 0, 0))
-    strain.key("door_right", "rotation", 0.0, (0, 0, 0))
-    strain.key("door_right", "rotation", 0.1, (0, 3, 0))
-    strain.key("door_right", "rotation", 0.3, (0, -0.8, 0))
-    strain.key("door_right", "rotation", 0.55, (0, 0, 0))
-    strain.key("crystal", "scale", 0.0, (1, 1, 1))
-    strain.key("crystal", "scale", 0.12, (1.16, 1.16, 1.16))
-    strain.key("crystal", "scale", 0.35, (1.02, 1.02, 1.02))
-    strain.key("crystal", "scale", 0.6, (1, 1, 1))
-    animations.append(strain)
 
-    open_animation = Animation("animation.cc_black_reliquary.open", RELEASE_TIME + 0.5, loop=False)
-    open_animation.key("door_left", "rotation", 0.0, (0, 0, 0))
-    open_animation.key("door_left", "rotation", 0.5, (0, -104, 0))
-    open_animation.key("door_left", "rotation", 0.9, (0, -96, 0))
-    open_animation.key("door_left", "rotation", RELEASE_TIME + 0.5, (0, -100, 0))
-    open_animation.key("door_right", "rotation", 0.0, (0, 0, 0))
-    open_animation.key("door_right", "rotation", 0.5, (0, 104, 0))
-    open_animation.key("door_right", "rotation", 0.9, (0, 96, 0))
-    open_animation.key("door_right", "rotation", RELEASE_TIME + 0.5, (0, 100, 0))
-    open_animation.key("crystal", "position", 0.0, (0, 0, 0))
-    open_animation.key("crystal", "position", 0.7, (0, 2.6, 0))
-    open_animation.key("crystal", "position", RELEASE_TIME + 0.5, (0, 1.6, 0))
-    open_animation.key("crystal", "rotation", 0.0, (0, 0, 0))
-    open_animation.key("crystal", "rotation", RELEASE_TIME + 0.5, (0, 240, 0))
-    open_animation.key("crystal", "scale", 0.0, (1, 1, 1))
-    open_animation.key("crystal", "scale", 0.7, (1.2, 1.2, 1.2))
-    open_animation.key("crystal", "scale", RELEASE_TIME + 0.5, (1.05, 1.05, 1.05))
-    open_animation.key("rune_disc", "rotation", 0.0, (0, 0, 0))
-    open_animation.key("rune_disc", "rotation", RELEASE_TIME + 0.5, (0, 180, 0))
-    open_animation.key("brazier_left", "scale", 0.0, (1, 1, 1))
-    open_animation.key("brazier_left", "scale", 0.7, (1.3, 1.6, 1.3))
-    open_animation.key("brazier_left", "scale", RELEASE_TIME + 0.5, (1, 1, 1))
-    open_animation.key("brazier_right", "scale", 0.0, (1, 1, 1))
-    open_animation.key("brazier_right", "scale", 0.7, (1.3, 1.6, 1.3))
-    open_animation.key("brazier_right", "scale", RELEASE_TIME + 0.5, (1, 1, 1))
-    animations.append(open_animation)
+def _strain() -> Animation:
+    strain = Animation("animation.cc_black_reliquary.strain", STRAIN_TIME, loop=False)
+    for time, angle in ((0.0, 0), (0.08, 3.4), (0.18, -2.8), (0.3, 2), (STRAIN_TIME, 0)):
+        strain.key("body", "rotation", time, (0, 0, angle))
+    strain.key("body", "position", 0.0, (0, 0, 0))
+    strain.key("body", "position", 0.08, (0.5, 0, 0))
+    strain.key("body", "position", 0.18, (-0.5, 0, 0))
+    strain.key("body", "position", STRAIN_TIME, (0, 0, 0))
+    _door(strain, ((0.0, 0), (0.1, -4.4), (0.26, 2), (STRAIN_TIME, 0)))
+    strain.key("crystal", "rotation", 0.0, (0, 0, 0))
+    strain.key("crystal", "rotation", STRAIN_TIME, (0, 12, 0))
+    strain.key("swags", "rotation", 0.0, (0, 0, 0))
+    strain.key("swags", "rotation", 0.12, (0, 9, 0))
+    strain.key("swags", "rotation", STRAIN_TIME, (0, 0, 0))
+    return strain
 
+
+def _burst() -> Animation:
+    burst = Animation("animation.cc_black_reliquary.burst", BURST_TIME, loop=False)
+    burst.key("body", "position", 0.0, (0, 0, 0))
+    burst.key("body", "position", 0.1, (0, 0.5, 0))
+    burst.key("body", "position", BURST_TIME, (0, 0, 0))
+    burst.key("crystal", "scale", 0.0, (1, 1, 1))
+    burst.key("crystal", "scale", 0.12, (1.6, 1.6, 1.6))
+    burst.key("crystal", "scale", BURST_TIME, (1, 1, 1))
+    burst.key("crystal", "rotation", 0.0, (0, 0, 0))
+    burst.key("crystal", "rotation", BURST_TIME, (0, 90, 0))
+    _door(burst, ((0.0, 0), (0.1, -6), (0.3, 2.6), (BURST_TIME, 0)))
+    return burst
+
+
+def _open() -> Animation:
+    opened = Animation("animation.cc_black_reliquary.open", RELEASE_TIME + 0.6, loop=False)
+    end = RELEASE_TIME + 0.6
+    _door(opened, ((0.0, DOOR_SHUT), (0.35, 58), (0.65, 116), (0.9, 98), (end, DOOR_OPEN)))
+    opened.key("latch", "position", 0.0, (0, 0, 0))
+    opened.key("latch", "position", 0.45, (0, 2.4, 0))
+    opened.key("latch", "position", end, (0, 2, 0))
+    opened.key("crystal", "scale", 0.0, (1, 1, 1))
+    opened.key("crystal", "scale", 0.7, (0.75, 0.75, 0.75))
+    opened.key("crystal", "scale", end, (1, 1, 1))
+    opened.key("lantern", "rotation", 0.0, (-3, 0, 0))
+    opened.key("lantern", "rotation", 0.5, (14, 0, -6))
+    opened.key("lantern", "rotation", end, (3, 0, 0))
+    return opened
+
+
+def _released() -> Animation:
     released = Animation("animation.cc_black_reliquary.released", RELEASE_TIME, loop=False)
-    released.key("door_left", "rotation", 0.0, (0, -100, 0))
-    released.key("door_left", "rotation", 0.5, (0, -94, 0))
-    released.key("door_left", "rotation", RELEASE_TIME, (0, -97, 0))
-    released.key("door_right", "rotation", 0.0, (0, 100, 0))
-    released.key("door_right", "rotation", 0.5, (0, 94, 0))
-    released.key("door_right", "rotation", RELEASE_TIME, (0, 97, 0))
-    released.key("crystal", "position", 0.0, (0, 1.6, 0))
-    released.key("crystal", "position", RELEASE_TIME, (0, 0, 0))
-    released.key("crystal", "scale", 0.0, (1.05, 1.05, 1.05))
+    _door(released, ((0.0, DOOR_OPEN), (0.35, DOOR_OPEN - 4), (0.72, DOOR_OPEN + 3), (RELEASE_TIME, DOOR_OPEN)))
+    released.key("crystal", "scale", 0.0, (1, 1, 1))
+    released.key("crystal", "scale", 0.3, (1.12, 1.12, 1.12))
     released.key("crystal", "scale", RELEASE_TIME, (1, 1, 1))
-    animations.append(released)
+    released.key("lantern", "rotation", 0.0, (3, 0, 0))
+    released.key("lantern", "rotation", 0.4, (-6, 0, 0))
+    released.key("lantern", "rotation", RELEASE_TIME, (3, 0, 0))
+    return released
 
+
+def _broken() -> Animation:
     broken = Animation("animation.cc_black_reliquary.broken", BROKEN_TIME, loop="hold_on_last_frame")
+    broken.key("body", "rotation", 0.0, (0, 0, 0))
+    broken.key("body", "rotation", 0.7, (0, 0, 5))
+    broken.key("body", "rotation", BROKEN_TIME, (0, 0, 8))
+    broken.key("body", "position", 0.0, (0, 0, 0))
+    broken.key("body", "position", 1.1, (0, -1.8, 0.6))
+    broken.key("body", "position", BROKEN_TIME, (0, -2.4, 0.9))
     broken.key("crystal", "scale", 0.0, (1, 1, 1))
-    broken.key("crystal", "scale", 0.4, (1.6, 1.6, 1.6))
-    broken.key("crystal", "scale", 0.8, (0, 0, 0))
+    broken.key("crystal", "scale", 0.5, (0.4, 0.4, 0.4))
     broken.key("crystal", "scale", BROKEN_TIME, (0, 0, 0))
-    broken.key("crystal", "position", 0.0, (0, 0, 0))
-    broken.key("crystal", "position", 0.8, (0, -3, 0))
-    broken.key("crystal", "position", BROKEN_TIME, (0, -24, 0))
     broken.key("crystal", "rotation", 0.0, (0, 0, 0))
-    broken.key("crystal", "rotation", BROKEN_TIME, (0, 220, 30))
-    broken.key("door_left", "rotation", 0.0, (0, 0, 0))
-    broken.key("door_left", "rotation", 1.0, (0, -62, 0))
-    broken.key("door_left", "rotation", BROKEN_TIME, (0, -54, 0))
-    broken.key("door_right", "rotation", 0.0, (0, 0, 0))
-    broken.key("door_right", "rotation", 1.0, (0, 74, 0))
-    broken.key("door_right", "rotation", BROKEN_TIME, (0, 66, 0))
-    broken.key("top", "rotation", 0.0, (0, 0, 0))
-    broken.key("top", "rotation", 1.4, (2, 0, -6))
-    broken.key("top", "rotation", BROKEN_TIME, (3, 0, -5))
-    broken.key("brazier_left", "rotation", 0.0, (0, 0, 0))
-    broken.key("brazier_left", "rotation", 1.2, (0, 0, -96))
-    broken.key("brazier_left", "rotation", BROKEN_TIME, (0, 0, -88))
-    broken.key("brazier_left", "position", 0.0, (0, 0, 0))
-    broken.key("brazier_left", "position", 1.2, (2, -3, 0))
-    broken.key("brazier_left", "position", BROKEN_TIME, (2, -3, 0))
-    broken.key("brazier_right", "rotation", 0.0, (0, 0, 0))
-    broken.key("brazier_right", "rotation", 1.2, (0, 0, 94))
-    broken.key("brazier_right", "rotation", BROKEN_TIME, (0, 0, 86))
-    broken.key("brazier_right", "position", 0.0, (0, 0, 0))
-    broken.key("brazier_right", "position", 1.2, (-2, -3, 0))
-    broken.key("brazier_right", "position", BROKEN_TIME, (-2, -3, 0))
-    broken.key("rune_disc", "rotation", 0.0, (0, 0, 0))
-    broken.key("rune_disc", "rotation", BROKEN_TIME, (0, 120, 0))
-    broken.key("chain_left", "rotation", 0.0, (0, 0, 0))
-    broken.key("chain_left", "rotation", 0.9, (0, 0, -20))
-    broken.key("chain_left", "rotation", BROKEN_TIME, (0, 0, -14))
-    broken.key("chain_right", "rotation", 0.0, (0, 0, 0))
-    broken.key("chain_right", "rotation", 0.9, (0, 0, 18))
-    broken.key("chain_right", "rotation", BROKEN_TIME, (0, 0, 12))
-    animations.append(broken)
-
-    return animations
+    broken.key("crystal", "rotation", BROKEN_TIME, (0, 0, 62))
+    _door(broken, ((0.0, 0), (0.8, 74), (BROKEN_TIME, 96)))
+    broken.key("roof", "rotation", 0.0, (0, 0, 0))
+    broken.key("roof", "rotation", 0.9, (0, 0, -6))
+    broken.key("roof", "rotation", BROKEN_TIME, (0, 0, -9))
+    broken.key("lantern", "rotation", 0.0, (0, 0, 0))
+    broken.key("lantern", "rotation", BROKEN_TIME, (44, 0, -20))
+    broken.key("lantern", "position", 0.0, (0, 0, 0))
+    broken.key("lantern", "position", BROKEN_TIME, (0, -8, 0))
+    broken.key("swags", "rotation", 0.0, (0, 0, 0))
+    broken.key("swags", "rotation", BROKEN_TIME, (18, 0, 0))
+    return broken
