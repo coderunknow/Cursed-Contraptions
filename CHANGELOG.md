@@ -5,32 +5,6 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog 1.1](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.5] - 2026-10-05
-
-Hotfix for *"I don't see any item in the game though I activate the add-on."*
-
-### Fixed
-
-- **Nothing appeared in the creative inventory.** Every item and anchor block
-  declared `"group": "itemGroup.name.miscellaneous"`. Since Bedrock 26.x the
-  creative group must be namespaced (`<namespace>:<name>`), so the game rejected
-  the whole `menu_category` and dropped all ten entries from the creative menu —
-  the add-on looked like it shipped no content at all. The devices now live in a
-  real, namespaced group, `cc:itemGroup.name.devices`, defined by a new
-  `behavior_pack/item_catalog/crafting_item_catalog.json` (icon: the Iron Maiden)
-  and labelled *Cursed Contraptions (Devices)* in `en_US.lang`. `/give` and the
-  crafting recipes were never affected; they are unchanged.
-- **`tests/validate_build.py` now rejects this class of defect**: every item and
-  block must declare a visible `menu_category` (`construction`, `equipment`,
-  `items`, or `nature`), any `group` must be namespaced, and every group must be
-  defined in the item catalog, list the declaring identifier, use a known icon,
-  and have a localization key. A deliberately re-broken item fails the build
-  (verified), so the defect cannot ship silently again.
-
-Nothing else changed: identifiers, UUIDs, recipes, and balance are untouched, so
-worlds from v0.1.4 keep their devices and captives. The pack version is bumped so
-a world that already has v0.1.4 installed accepts the update.
-
 ## [0.1.4] - 2026-10-05
 
 Scale, animation, mechanics, and polish release, built from the request
@@ -41,6 +15,26 @@ declared `min_engine_version [1, 21, 60]` / `@minecraft/server` 1.17.0
 dependency are unchanged; the new entity properties (`cc:charge`, `cc:souls`)
 and tags are additive, so existing worlds keep their devices, captives,
 durability, and reinforcements. No Beta APIs are used.
+
+### Fixed (same release, rebuilt after the first v0.1.4 test build)
+
+- **Nothing appeared in the creative inventory.** Every item and anchor block
+  declared `"group": "itemGroup.name.miscellaneous"`. That value is not in the
+  vanilla creative-group enumerator, and current Bedrock requires the group to
+  be namespaced (`<namespace>:<name>`), so the game discarded the whole
+  `menu_category` and dropped all ten entries from the creative menu — the
+  add-on looked like it shipped no content. The devices now use a real,
+  namespaced group, `cc:itemGroup.name.devices`, defined by the new
+  `behavior_pack/item_catalog/crafting_item_catalog.json` (icon: the Iron
+  Maiden) and labelled *Cursed Contraptions (Devices)* in `en_US.lang`.
+  `/give` and the crafting recipes were never affected and are unchanged.
+- **The pack validator now rejects this class of defect.** Every item and block
+  must declare a visible `menu_category` category (`construction`, `equipment`,
+  `items`, or `nature` — `none` is rejected because it hides the entry), any
+  `group` must be namespaced, and every group must be defined in the item
+  catalog, list the declaring identifier, use a known icon, and have a
+  localization key. Re-inserting the old value fails the build (verified), so
+  the defect cannot ship silently again.
 
 ### Fixed
 

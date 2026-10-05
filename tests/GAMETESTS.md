@@ -176,7 +176,7 @@ treating the v0.1.4 feature set as verified.
     (`/scriptevent cc:devices`). Repeat with a disconnect during the closed
     animation and a rejoin.
 
-## 7. v0.1.5 spot-checks (creative-menu registration)
+## 7. v0.1.4 hotfix spot-check (creative-menu registration)
 
 1. Enable both packs in a world and open the creative inventory. The five
    devices (and their five placeholder anchor blocks) must appear under

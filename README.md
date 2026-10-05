@@ -2,7 +2,7 @@
 
 **Five animated, placeable trap devices for Minecraft Bedrock multiplayer.**
 
-Release **v0.1.5** · Declared minimum engine version **1.21.60**; prepared for the reported **Bedrock 26.2 multiplayer test**. Uses stable `@minecraft/server` 1.17.0; no Beta APIs toggle is required. Worlds created with v0.1.0–v0.1.4 keep their devices, captives, durability, and reinforcements.
+Release **v0.1.4** · Declared minimum engine version **1.21.60**; prepared for the reported **Bedrock 26.2 multiplayer test**. Uses stable `@minecraft/server` 1.17.0; no Beta APIs toggle is required. Worlds created with v0.1.0–v0.1.4 keep their devices, captives, durability, and reinforcements.
 
 ## Features
 
@@ -87,7 +87,9 @@ Charge decays while the device is empty, so a fresh victim always starts at step
    Cursed Contraptions (Devices)**, or use the search box.
 5. Open **Settings → Creator → Content Log** and reload; a rejected content file
    is reported there. `tests/validate_build.py` rejects an invalid creative group
-   in CI, and v0.1.5 fixed the one that shipped in v0.1.4.
+   in CI, and the first v0.1.4 build shipped one, which is why the devices were
+   missing until the release was rebuilt; re-import the current
+   `Cursed-Contraptions.mcaddon` to pick it up.
 
 ## Devices and default balance
 
@@ -186,7 +188,7 @@ The automated suite checks JavaScript syntax, type conformance against the stabl
 - Devices are static fixtures: no gravity and no block collision, so they cannot sink through an
   unloaded floor or shove a captive out of its seat.
 - Device detection is local, idle checks are throttled, and the active-device ceiling is enforced.
-- Natural structure/world generation and structure loot are not implemented in v0.1.5.
+- Natural structure/world generation and structure loot are not implemented in v0.1.4.
 - Creative-menu placement is declared once, in `behavior_pack/item_catalog/crafting_item_catalog.json`,
   and every item/block points at the group it defines; the pack validator keeps the two in sync.
 
