@@ -1,4 +1,9 @@
-"""Packaging pipeline: animation controllers and client entity files.
+"""Packaging pipeline: animation controllers, wear stages, and client entities.
+
+The server drives the client purely through ``cc:anim_*`` tags plus the
+client-synced ``cc:charge`` property, because a behavior pack cannot call the
+beta animation APIs. Everything below turns that small signal set into real
+animation state.
 
 Dev-only tool: nothing in this file ships inside the .mcaddon.
 """
@@ -10,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from anim import Animation
-from model import Model
+from model import Model, model_bounds
 
 # The device state names shared with the behavior pack. Each has a matching
 # ``cc:anim_<state>`` tag on the entity, which is what the animation controller
@@ -26,8 +31,35 @@ DEVICE_STATES = (
     "broken",
 )
 
-# States the strain overlay may interrupt, and how long the rattle holds.
-STRAIN_DURATION = 0.6
+# Extra states layered on top of the base states:
+# * ``torturing_high`` is a hotter loop the controller switches to from the
+#   client-synced soul-charge property, so an escalating device visibly works
+#   itself up without needing a second tag.
+# * ``*_strain`` / ``*_burst`` are short one-shots that interrupt an occupied
+#   state (the captive rattling the frame, and the discharge on a damage tick).
+TIER_STATES = {"torturing": (("torturing_high", "q.property('cc:charge') >= 3"),)}
+TIER_FALLBACK = "q.property('cc:charge') < 3"
+OVERLAYS = {
+    "closed": ("strain",),
+    "torturing": ("strain", "burst"),
+}
+OVERLAY_DURATION = {"strain": 0.7, "burst": 0.45}
+
+# Animations every device must ship for the controller above to resolve.
+REQUIRED_ANIMATIONS = (
+    "idle", "detect", "close", "closed", "torture", "torture_high",
+    "strain", "burst", "open", "released", "broken",
+)
+
+# Damage stages: ``cc:anim_wear_<stage>`` tags, driven by remaining durability.
+WEAR_STAGES = 4
+WEAR_THRESHOLD_COMMENT = (
+    "wear_0 = pristine, wear_1..3 = progressively cracked (see CONFIG.wear)"
+)
+
+
+def overlay_state_name(base: str, overlay: str) -> str:
+    return f"{base}_{overlay}"
 
 
 @dataclass
@@ -38,67 +70,126 @@ class DeviceArt:
     display_name: str
     model: Model
     animations: list[Animation]
-    state_animations: dict[str, list[str]]
     particle: str = "minecraft:basic_smoke_particle"
     accent_particle: str = "minecraft:basic_flame_particle"
     material: str = "entity_alphatest"
-    # state -> (overlay state name, overlay duration in seconds)
-    strain: dict[str, tuple[str, float]] = field(default_factory=dict)
+    # Extra device-specific flourish, e.g. the Iron Maiden's nail bed.
+    seat_height: float = 0.0
 
     @property
     def controller_id(self) -> str:
         return f"controller.animation.cc_{self.slug}.state"
 
+    @property
+    def wear_controller_id(self) -> str:
+        return f"controller.animation.cc_{self.slug}.wear"
+
+    def animation_id(self, name: str) -> str:
+        return f"animation.cc_{self.slug}.{name}"
+
+    def animation_names(self) -> set[str]:
+        prefix = f"animation.cc_{self.slug}."
+        return {
+            animation.identifier[len(prefix):]
+            for animation in self.animations
+            if animation.identifier.startswith(prefix)
+        }
+
+
+def _state_tag(state: str) -> str:
+    """Tag that selects a controller state (tier states share the base tag)."""
+    for base, tiers in TIER_STATES.items():
+        if state == base or state in [tier for tier, _ in tiers]:
+            return base
+    for base, overlays in OVERLAYS.items():
+        for overlay in overlays:
+            if state == overlay_state_name(base, overlay):
+                return overlay
+    return state
+
+
+def _state_animation(device: DeviceArt, state: str) -> str:
+    """Animation alias a controller state plays, derived from its name."""
+    if state.endswith("_strain"):
+        return "strain"
+    if state.endswith("_burst"):
+        return "burst"
+    if state == "torturing_high":
+        return "torture_high"
+    return {
+        "detecting": "detect",
+        "capturing": "close",
+        "torturing": "torture",
+        "opening": "open",
+    }.get(state, state)
+
 
 def controller_json(device: DeviceArt) -> dict:
-    """Emit the animation controller for one device.
+    """Emit the state controller for one device.
 
-    Every gameplay state must be reachable from every other state: the server
-    drives the controller purely through ``cc:anim_<state>`` tags, and state
-    changes (redstone, resets, reconnect recovery) are not always adjacent.
-    Strain overlays are short-lived states that play a one-shot rattle before
-    falling back to the state underneath.
+    Every gameplay state is reachable from every other state: state changes
+    (redstone resets, reconnect recovery, forced releases) are not always
+    adjacent, and the unit test that walks the graph requires it.
     """
+    base_states = list(DEVICE_STATES)
+    tier_states = [tier for base in DEVICE_STATES for tier, _ in TIER_STATES.get(base, ())]
+    all_states = base_states + tier_states
+    overlay_states = [
+        overlay_state_name(base, overlay)
+        for base in DEVICE_STATES
+        for overlay in OVERLAYS.get(base, ())
+    ]
+
     states: dict[str, dict] = {}
 
-    for state in DEVICE_STATES:
-        entry: dict = {"animations": list(device.state_animations.get(state, []))}
+    for state in all_states:
+        entry: dict = {"animations": [_state_animation(device, state)]}
         transitions: list[dict] = []
 
-        if state in device.strain:
-            overlay = device.strain[state][0]
-            transitions.append({overlay: "q.has_tag('cc:anim_strain')"})
+        for base in DEVICE_STATES:
+            for overlay in OVERLAYS.get(base, ()):
+                overlay_name = overlay_state_name(base, overlay)
+                if base == state or (state in tier_states and TIER_STATES.get(base) and
+                                     state == TIER_STATES[base][0][0]):
+                    transitions.append({overlay_name: f"q.has_tag('cc:anim_{overlay}')"})
 
-        if state != "broken":
-            # The behavior pack is authoritative: it sets exactly one
-            # ``cc:anim_<state>`` tag at a time, and every state must be
-            # reachable from every other (redstone resets, reconnect recovery
-            # and forced releases are not limited to adjacent transitions).
-            for candidate in DEVICE_STATES:
-                if candidate == state:
-                    continue
-                transitions.append({candidate: f"q.has_tag('cc:anim_{candidate}')"})
+        if state not in tier_states:
+            for tier, condition in TIER_STATES.get(state, ()):
+                transitions.append({tier: condition})
+
+        if state == "broken":
+            entry["transitions"] = transitions
+            states[state] = entry
+            continue
+
+        for candidate in all_states:
+            if candidate == state:
+                continue
+            if candidate in tier_states:
+                continue
+            transitions.append({candidate: f"q.has_tag('cc:anim_{_state_tag(candidate)}')"})
+
+        if state in tier_states:
+            base = next(base for base in TIER_STATES if TIER_STATES[base][0][0] == state)
+            transitions.append({base: TIER_FALLBACK})
 
         entry["transitions"] = transitions
         states[state] = entry
 
-    for state, (overlay, duration) in device.strain.items():
-        # The overlay runs for a fixed time, then hands back to the state it
-        # interrupted (or follows the server if that state already moved on).
-        overlay_transitions: list[dict] = [
-            {state: f"!q.has_tag('cc:anim_strain') || q.anim_time > {duration}"}
-        ]
-        for candidate in DEVICE_STATES:
-            if candidate == state:
+    for overlay_state in overlay_states:
+        base, _, overlay = overlay_state.rpartition("_")
+        duration = OVERLAY_DURATION[overlay]
+        transitions: list[dict] = [{
+            base: f"!q.has_tag('cc:anim_{overlay}') || q.anim_time > {duration}",
+        }]
+        for candidate in all_states:
+            if candidate == base or candidate in tier_states:
                 continue
-            if candidate == "idle":
-                continue
-            overlay_transitions.append({candidate: f"q.has_tag('cc:anim_{candidate}')"})
-        overlay_transitions.append({"idle": "q.has_tag('cc:anim_idle')"})
-        states[overlay] = {
-            "animations": ["strain"],
+            transitions.append({candidate: f"q.has_tag('cc:anim_{_state_tag(candidate)}')"})
+        states[overlay_state] = {
+            "animations": [_state_animation(device, overlay_state)],
             "blend_transition": 0.1,
-            "transitions": overlay_transitions,
+            "transitions": transitions,
         }
 
     return {
@@ -112,12 +203,69 @@ def controller_json(device: DeviceArt) -> dict:
     }
 
 
+def wear_animations(device: DeviceArt) -> list[Animation]:
+    """Build the four durability animations from ``wear_<stage>_*`` bones.
+
+    A wear bone is authored on (or just outside) a surface; every animation
+    except its own stage buries it under the device, so a freshly placed
+    contraption shows no damage and each later stage adds one more set of
+    cracks. Stage 0 buries every plate, which also covers the single frame
+    before the client has evaluated the wear controller.
+    """
+    model = device.model
+    _, min_y, _, _, max_y, _ = model_bounds(model)
+    burial = -(max_y - min_y) - 8.0
+    stages: dict[int, list[str]] = {}
+    for bone in model.bones:
+        if not bone.name.startswith("wear_"):
+            continue
+        _, _, rest = bone.name.partition("_")
+        stage_text, _, _ = rest.partition("_")
+        if not stage_text.isdigit():
+            raise ValueError(f"wear bone {bone.name} must be named wear_<stage>_<name>")
+        stages.setdefault(int(stage_text), []).append(bone.name)
+
+    animations: list[Animation] = []
+    for stage in range(WEAR_STAGES):
+        animation = Animation(device.animation_id(f"wear_{stage}"), 0.1, loop="hold_on_last_frame")
+        for bone_stage, names in sorted(stages.items()):
+            offset = (0.0, 0.0, 0.0) if bone_stage <= stage else (0.0, burial, 0.0)
+            for name in names:
+                animation.key(name, "position", 0.0, offset)
+                animation.key(name, "position", 0.1, offset)
+        animations.append(animation)
+    return animations
+
+
+def wear_controller_json(device: DeviceArt) -> dict:
+    states: dict[str, dict] = {}
+    for stage in range(WEAR_STAGES):
+        states[f"wear_{stage}"] = {
+            "animations": [f"wear_{stage}"],
+            "transitions": [
+                {f"wear_{other}": f"q.has_tag('cc:anim_wear_{other}')"}
+                for other in range(WEAR_STAGES)
+                if other != stage
+            ],
+        }
+    return {
+        "format_version": "1.10.0",
+        "animation_controllers": {
+            device.wear_controller_id: {
+                "initial_state": "wear_0",
+                "states": states,
+            }
+        },
+    }
+
+
 def client_entity_json(device: DeviceArt) -> dict:
     animations = {
         animation.identifier.replace(f"animation.cc_{device.slug}.", ""): animation.identifier
         for animation in device.animations
     }
-    animations["controller"] = device.controller_id
+    animations["state"] = device.controller_id
+    animations["wear"] = device.wear_controller_id
     return {
         "format_version": "1.10.0",
         "minecraft:client_entity": {
@@ -127,10 +275,56 @@ def client_entity_json(device: DeviceArt) -> dict:
                 "textures": {"default": f"textures/entity/{device.slug}"},
                 "geometry": {"default": device.model.identifier},
                 "animations": animations,
-                "scripts": {"animate": ["controller"]},
+                "scripts": {"animate": ["state", "wear"]},
                 "render_controllers": ["controller.render.default"],
             }
         },
+    }
+
+
+def scale_device(art: DeviceArt, factor: float) -> DeviceArt:
+    """Resize a finished device definition by an integer-friendly factor.
+
+    Devices are authored in model units (1 unit = 1 texel = 1/16 block, which
+    keeps the art crisp); the world size is a separate decision, applied here in
+    one place so geometry, wear burial and animation offsets can never disagree.
+    Rotation keys are in degrees and scale keys are ratios, so only pivots,
+    cube boxes and position offsets are touched.
+    """
+    if factor == 1.0:
+        return art
+    for bone in art.model.bones:
+        bone.pivot = [value * factor for value in bone.pivot]
+        for cube in bone.cubes:
+            cube.origin = [value * factor for value in cube.origin]
+            cube.size = [value * factor for value in cube.size]
+            cube.inflate = cube.inflate * factor
+            if cube.pivot:
+                cube.pivot = [value * factor for value in cube.pivot]
+    art.model.visible_bounds = tuple(value * factor for value in art.model.visible_bounds)
+    art.model.visible_offset = tuple(value * factor for value in art.model.visible_offset)
+    for animation in art.animations:
+        for channels in animation.bones.values():
+            if "position" in channels:
+                channels["position"] = [
+                    (time, tuple(value * factor for value in offset))
+                    for time, offset in channels["position"]
+                ]
+    return art
+
+
+def collision_from_model(art: DeviceArt, margin: float = 0.0, ignore: tuple = ()) -> dict:
+    """Derive the entity hitbox from the model, in blocks.
+
+    Keeping the hitbox tied to the geometry means a resized device can never
+    leave a mismatched box behind (the v0.1.3 models were 40% shorter than the
+    boxes they used). ``ignore`` skips protrusions like a crank wheel or a
+    hanging chain, which should not inflate the box you have to click.
+    """
+    min_x, min_y, min_z, max_x, max_y, max_z = model_bounds(art.model, ignore=ignore)
+    return {
+        "width": round(max(max_x - min_x, max_z - min_z) / 16 + margin, 2),
+        "height": round((max_y - min_y) / 16, 2),
     }
 
 

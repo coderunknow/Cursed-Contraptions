@@ -1,0 +1,74 @@
+{
+  "format_version": "1.10.0",
+  "animation_controllers": {
+    "controller.animation.cc_regret_rack.wear": {
+      "initial_state": "wear_0",
+      "states": {
+        "wear_0": {
+          "animations": [
+            "wear_0"
+          ],
+          "transitions": [
+            {
+              "wear_1": "q.has_tag('cc:anim_wear_1')"
+            },
+            {
+              "wear_2": "q.has_tag('cc:anim_wear_2')"
+            },
+            {
+              "wear_3": "q.has_tag('cc:anim_wear_3')"
+            }
+          ]
+        },
+        "wear_1": {
+          "animations": [
+            "wear_1"
+          ],
+          "transitions": [
+            {
+              "wear_0": "q.has_tag('cc:anim_wear_0')"
+            },
+            {
+              "wear_2": "q.has_tag('cc:anim_wear_2')"
+            },
+            {
+              "wear_3": "q.has_tag('cc:anim_wear_3')"
+            }
+          ]
+        },
+        "wear_2": {
+          "animations": [
+            "wear_2"
+          ],
+          "transitions": [
+            {
+              "wear_0": "q.has_tag('cc:anim_wear_0')"
+            },
+            {
+              "wear_1": "q.has_tag('cc:anim_wear_1')"
+            },
+            {
+              "wear_3": "q.has_tag('cc:anim_wear_3')"
+            }
+          ]
+        },
+        "wear_3": {
+          "animations": [
+            "wear_3"
+          ],
+          "transitions": [
+            {
+              "wear_0": "q.has_tag('cc:anim_wear_0')"
+            },
+            {
+              "wear_1": "q.has_tag('cc:anim_wear_1')"
+            },
+            {
+              "wear_2": "q.has_tag('cc:anim_wear_2')"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

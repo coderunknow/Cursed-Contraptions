@@ -201,6 +201,16 @@ class Painter:
                     continue
                 self.px(column, row, mix(current, light if self.rng.below(0.5) else dark, 0.16))
 
+    def clear(self) -> None:
+        """Make the whole patch fully transparent (see-through walls, overlays)."""
+        transparent = (0, 0, 0, 0)
+        for row in range(self.rect.height):
+            for column in range(self.rect.width):
+                self.px(column, row, transparent)
+
+    def clear_px(self, column: int, row: int) -> None:
+        self.px(column, row, (0, 0, 0, 0))
+
     def px_get(self, column: int, row: int) -> Color:
         x, y = self.rect.at(column, row)
         return self.image.get(x, y)

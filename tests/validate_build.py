@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BP = ROOT / "behavior_pack"
 RP = ROOT / "resource_pack"
-RELEASE_VERSION = [0, 1, 3]
+RELEASE_VERSION = [0, 1, 4]
 MIN_ENGINE_VERSION = [1, 21, 60]
 SERVER_API_VERSION = "1.17.0"
 EXPECTED_PACKAGES = {
@@ -115,7 +115,7 @@ def validate_manifests() -> tuple[dict | None, dict | None]:
         if not header.get("name"):
             report_error(f"{name} manifest has no header name")
         if header.get("version") != RELEASE_VERSION:
-            report_error(f"{name} manifest must be version 0.1.2")
+            report_error(f"{name} manifest must be version {release_version}")
         if header.get("min_engine_version") != MIN_ENGINE_VERSION:
             report_error(f"{name} minimum engine version must be 1.21.60")
 
@@ -126,7 +126,7 @@ def validate_manifests() -> tuple[dict | None, dict | None]:
         for index, module in enumerate(modules):
             validate_uuid(module.get("uuid"), f"{name} module[{index}]", seen_uuids)
             if module.get("version") != RELEASE_VERSION:
-                report_error(f"{name} module[{index}] must be version 0.1.2")
+                report_error(f"{name} module[{index}] must be version {release_version}")
             entry = module.get("entry")
             if entry:
                 entry_path = pack_root(name) / entry
@@ -378,15 +378,6 @@ def validate_pack_references() -> tuple[int, int, int, int]:
                 report_error(f"Duplicate animation identifier: {identifier}")
             animations[identifier] = definition
 
-    for path in sorted((RP / "animation_controllers").glob("*.animation_controllers.json")):
-        data = json_data.get(path) or load_json(path)
-        if not data:
-            continue
-        for identifier, definition in data.get("animation_controllers", {}).items():
-            if identifier in controllers:
-                report_error(f"Duplicate animation controller identifier: {identifier}")
-            controllers[identifier] = definition
-
     for path in block_ids.values():
         block = (json_data.get(path) or {}).get("minecraft:block", {})
         geometry = block.get("components", {}).get("minecraft:geometry")
@@ -402,6 +393,15 @@ def validate_pack_references() -> tuple[int, int, int, int]:
         target_block = components.get("minecraft:block_placer", {}).get("block")
         if target_block and target_block not in block_ids:
             report_error(f"Item {identifier} references missing block {target_block}")
+
+    for path in sorted((RP / "animation_controllers").glob("*.json")):
+        data = json_data.get(path) or load_json(path)
+        if not data:
+            continue
+        for identifier, definition in data.get("animation_controllers", {}).items():
+            if identifier in controllers:
+                report_error(f"Duplicate animation controller identifier: {identifier}")
+            controllers[identifier] = definition
 
     for path, description in rp_entities.values():
         texture_refs = description.get("textures", {}).values()
@@ -433,7 +433,9 @@ def validate_pack_references() -> tuple[int, int, int, int]:
                     )
             bone_names = {bone.get("name") for bone in geometry.get("bones", [])}
             for alias, animation_id in description.get("animations", {}).items():
-                if alias == "controller":
+                # Controller aliases are validated below, where the controller
+                # files are already loaded.
+                if str(animation_id).startswith("controller.animation."):
                     continue
                 animation = animations.get(animation_id)
                 if not animation:
@@ -443,20 +445,29 @@ def validate_pack_references() -> tuple[int, int, int, int]:
                 if missing_bones:
                     report_error(f"Animation {animation_id} references missing bones {sorted(missing_bones)}")
 
+        # An alias points at either an animation or an animation controller; the
+        # wear controller added in v0.1.4 is a second controller alias, so the
+        # name "controller" is no longer the only legal one.
         animation_aliases = description.get("animations", {})
-        controller_id = animation_aliases.get("controller")
-        if controller_id and controller_id not in controllers:
-            report_error(f"Client entity {path.name} references undefined controller {controller_id}")
-        for alias, animation_id in animation_aliases.items():
-            if alias != "controller" and animation_id not in animations:
-                report_error(f"Client entity {path.name} maps {alias} to missing animation {animation_id}")
+        controller_aliases = {
+            alias: target for alias, target in animation_aliases.items()
+            if str(target).startswith("controller.animation.")
+        }
+        for alias, target in animation_aliases.items():
+            if str(target).startswith("controller.animation."):
+                if target not in controllers:
+                    report_error(f"Client entity {path.name} references undefined controller {target}")
+            elif target not in animations:
+                report_error(f"Client entity {path.name} maps {alias} to missing animation {target}")
 
         scripts = description.get("scripts", {})
         for animated_alias in scripts.get("animate", []):
             if animated_alias not in animation_aliases:
                 report_error(f"Client entity {path.name} animates undefined alias {animated_alias}")
 
-        if controller_id in controllers:
+        for controller_id in controller_aliases.values():
+            if controller_id not in controllers:
+                continue
             definition = controllers[controller_id]
             states = definition.get("states", {})
             for state_name, state in states.items():

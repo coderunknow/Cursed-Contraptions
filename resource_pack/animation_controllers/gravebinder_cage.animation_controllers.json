@@ -125,7 +125,13 @@
           ],
           "transitions": [
             {
-              "torture_strain": "q.has_tag('cc:anim_strain')"
+              "torturing_strain": "q.has_tag('cc:anim_strain')"
+            },
+            {
+              "torturing_burst": "q.has_tag('cc:anim_burst')"
+            },
+            {
+              "torturing_high": "q.property('cc:charge') >= 3"
             },
             {
               "idle": "q.has_tag('cc:anim_idle')"
@@ -212,6 +218,46 @@
           ],
           "transitions": []
         },
+        "torturing_high": {
+          "animations": [
+            "torture_high"
+          ],
+          "transitions": [
+            {
+              "torturing_strain": "q.has_tag('cc:anim_strain')"
+            },
+            {
+              "torturing_burst": "q.has_tag('cc:anim_burst')"
+            },
+            {
+              "idle": "q.has_tag('cc:anim_idle')"
+            },
+            {
+              "detecting": "q.has_tag('cc:anim_detecting')"
+            },
+            {
+              "capturing": "q.has_tag('cc:anim_capturing')"
+            },
+            {
+              "closed": "q.has_tag('cc:anim_closed')"
+            },
+            {
+              "torturing": "q.has_tag('cc:anim_torturing')"
+            },
+            {
+              "opening": "q.has_tag('cc:anim_opening')"
+            },
+            {
+              "released": "q.has_tag('cc:anim_released')"
+            },
+            {
+              "broken": "q.has_tag('cc:anim_broken')"
+            },
+            {
+              "torturing": "q.property('cc:charge') < 3"
+            }
+          ]
+        },
         "closed_strain": {
           "animations": [
             "strain"
@@ -219,7 +265,10 @@
           "blend_transition": 0.1,
           "transitions": [
             {
-              "closed": "!q.has_tag('cc:anim_strain') || q.anim_time > 0.6"
+              "closed": "!q.has_tag('cc:anim_strain') || q.anim_time > 0.7"
+            },
+            {
+              "idle": "q.has_tag('cc:anim_idle')"
             },
             {
               "detecting": "q.has_tag('cc:anim_detecting')"
@@ -238,20 +287,20 @@
             },
             {
               "broken": "q.has_tag('cc:anim_broken')"
-            },
-            {
-              "idle": "q.has_tag('cc:anim_idle')"
             }
           ]
         },
-        "torture_strain": {
+        "torturing_strain": {
           "animations": [
             "strain"
           ],
           "blend_transition": 0.1,
           "transitions": [
             {
-              "torturing": "!q.has_tag('cc:anim_strain') || q.anim_time > 0.6"
+              "torturing": "!q.has_tag('cc:anim_strain') || q.anim_time > 0.7"
+            },
+            {
+              "idle": "q.has_tag('cc:anim_idle')"
             },
             {
               "detecting": "q.has_tag('cc:anim_detecting')"
@@ -270,9 +319,38 @@
             },
             {
               "broken": "q.has_tag('cc:anim_broken')"
+            }
+          ]
+        },
+        "torturing_burst": {
+          "animations": [
+            "burst"
+          ],
+          "blend_transition": 0.1,
+          "transitions": [
+            {
+              "torturing": "!q.has_tag('cc:anim_burst') || q.anim_time > 0.45"
             },
             {
               "idle": "q.has_tag('cc:anim_idle')"
+            },
+            {
+              "detecting": "q.has_tag('cc:anim_detecting')"
+            },
+            {
+              "capturing": "q.has_tag('cc:anim_capturing')"
+            },
+            {
+              "closed": "q.has_tag('cc:anim_closed')"
+            },
+            {
+              "opening": "q.has_tag('cc:anim_opening')"
+            },
+            {
+              "released": "q.has_tag('cc:anim_released')"
+            },
+            {
+              "broken": "q.has_tag('cc:anim_broken')"
             }
           ]
         }

@@ -18,7 +18,7 @@ entity.cc:gravebinder_cage.name=Gravebinder Cage
 entity.cc:regret_rack.name=The Regret Rack
 entity.cc:black_reliquary.name=The Black Reliquary
 
-action.cc.use_device=Inspect / Reinforce
+action.cc.use_device=Inspect / Repair / Reinforce
 action.cc.rescue_captive=Use / Rescue
 
 pack.name=Cursed Contraptions

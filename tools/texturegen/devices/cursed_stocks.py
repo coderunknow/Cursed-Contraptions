@@ -1,355 +1,492 @@
-"""Cursed Stocks — pillory with a slamming board, clanking chains, and a lock.
+"""Cursed Stocks — a braced timber bench that clamps its captive.
 
-Layout (model space, X east / Y up / Z south, 1 unit = 1 pixel):
-the offender's tile is empty; the shafts leave crosswise from the block edges,
-so the head and both hands are locked at the front of a waist-high platform.
+v0.1.4 rebuild: roughly 1.5 x 1.1 x 1.5 blocks with a stone plinth, a heavy
+backboard, a hinged upper board that slams shut on capture, iron lock bars, a
+side crank that spins while the device works, a chained stone weight, and wear
+plates that appear as the timber splinters.
+
+Dev-only tool: nothing in this file ships inside the .mcaddon.
 """
 
 from __future__ import annotations
 
 from anim import Animation
 from artkit import (
-    GOLD,
+    BLOOD,
     IRON_BLACK,
+    LEATHER,
     ROPE,
+    ROPE_DARK,
     RUST,
     STEEL,
     STEEL_DARK,
     STEEL_HIGHLIGHT,
     STEEL_LIGHT,
+    STEEL_MID,
     WOOD,
     WOOD_DARK,
     WOOD_LIGHT,
-    chain,
-    iron_bar,
+    WOOD_MID,
+    cracks,
+    flat,
     leather,
-    planks,
+    rope,
+    skull,
+    spoked_wheel,
     steel_plate,
+    steel_panel,
+    stone_brick,
+    wood_frame,
 )
+from canvas import mix, rgba, shade
 from model import Face, Model
-from pipeline import DeviceArt
-from _kit import finalize, flat_face, shared_face
+from pipeline import DeviceArt, scale_device
 
 CAPTURE_DELAY = 0.75
-CLOSE_DURATION = 0.8
+CLOSE_DURATION = 1.0
 CLOSED_PAUSE = 0.5
 TORTURE_INTERVAL = 4.0
-RELEASE_TIME = 0.8
-BROKEN_TIME = 1.4
+RELEASE_TIME = 1.0
+BROKEN_TIME = 1.5
+# World size: authored scale x1.5 (1 unit = 1/16 block).
+SCALE = 1.5
+
+STRAIN_TIME = 0.7
+BURST_TIME = 0.45
+
+HIDDEN = rgba("#1b1712")
+GLASS = rgba("#0b0906")
+
+# Upper board closed / open, in degrees about X at the hinge (back edge).
+BOARD_CLOSED = 0.0
+BOARD_OPEN = -46.0
+BOARD_LIFTED = -54.0
 
 
-def _board(upper: bool):
-    """Plank board with three clamped shafts; the holes are carved into the wood."""
-
-    def paint(painter) -> None:
-        planks(WOOD, light=WOOD_LIGHT, dark=WOOD_DARK, count=2, knots=2)(painter)
-        width, height = painter.rect.width, painter.rect.height
-        # Iron strapping across the ends.
-        for column in (0, width - 2):
-            painter.box(column, 0, 2, height, STEEL_DARK)
-            painter.box(column, 0, 1, height, STEEL)
-            painter.vline(column, 0, height, STEEL_LIGHT)
-        # The three shafts: centre (head) and both flanks (hands).
-        for index, ratio in enumerate((0.5, 0.2, 0.8)):
-            shaft_column = int(width * ratio) - 1
-            for offset in range(2):
-                column = min(width - 1, max(0, shaft_column + offset))
-                painter.vline(column, 0, height, IRON_BLACK)
-                painter.vline(min(width - 1, column + 1), 0, height, RUST if upper else IRON_BLACK)
-        painter.bevel(WOOD_LIGHT, WOOD_DARK, alpha=150)
-
-    return paint
+def face(paint, **kwargs) -> Face:
+    return Face(paint=paint, **kwargs)
 
 
-def _board_split():
-    """Fixed lower board: half of each shaft is carved out of its top edge."""
-
-    def paint(painter) -> None:
-        planks(WOOD, light=WOOD_LIGHT, dark=WOOD_DARK, count=2, knots=2)(painter)
-        width, height = painter.rect.width, painter.rect.height
-        for column in (0, width - 2):
-            painter.box(column, 0, 2, height, STEEL_DARK)
-            painter.box(column, 0, 1, height, STEEL)
-        for ratio in (0.5, 0.2, 0.8):
-            center = int(width * ratio)
-            painter.box(max(0, center - 1), 0, 2, max(2, height // 2 + 1), IRON_BLACK)
-            painter.px(max(0, center - 1), max(0, height // 2), RUST)
-        painter.bevel(WOOD_LIGHT, WOOD_DARK, alpha=150)
-
-    return paint
+def patch(color, key: str, size=(1, 1)) -> Face:
+    return Face(paint=flat(color), size=size, share=f"flat:{key}")
 
 
-def _padlock():
-    def paint(painter) -> None:
-        painter.fill(STEEL_DARK)
-        width, height = painter.rect.width, painter.rect.height
-        painter.gradient_v(STEEL, STEEL_DARK)
-        painter.box(0, 0, width, 1, STEEL_HIGHLIGHT)
-        painter.box(0, height - 1, width, 1, IRON_BLACK)
-        painter.px(width // 2, height // 2, IRON_BLACK)
-        painter.px(width // 2, height // 2 + 1, GOLD)
-        painter.bevel(STEEL_LIGHT, IRON_BLACK, alpha=170)
+HIDDEN_FLAT = lambda: patch(HIDDEN, "hidden")  # noqa: E731
+DARK_FLAT = lambda: patch(IRON_BLACK, "iron_black")  # noqa: E731
 
-    return paint
+
+def clear(painter) -> None:
+    painter.clear()
+
+
+CLEAR_FLAT = lambda: Face(paint=clear, size=(1, 1), share="flat:clear")  # noqa: E731
+
+
+def boards(painter) -> None:
+    """The clamping board face: planks, iron straps, and worn notches."""
+    wood_frame(WOOD, light=WOOD_LIGHT, dark=WOOD_DARK, braces=2)(painter)
+    width, height = painter.rect.width, painter.rect.height
+    for column in range(0, width, 4):
+        painter.vline(column, 1, height - 2, shade(WOOD_DARK, 0.05))
+        painter.vline(min(width - 1, column + 1), 1, height - 2, shade(WOOD_LIGHT, 0.12))
+    for _ in range(3):
+        column = painter.rng.between(1, max(1, width - 2))
+        row = painter.rng.between(1, max(1, height - 3))
+        painter.box(column, row, painter.rng.between(1, 2), painter.rng.between(2, 4), shade(WOOD_DARK, 0.25))
+    painter.streaks(BLOOD, count=2, alpha_range=(50, 120))
+    painter.bevel(WOOD_LIGHT, WOOD_DARK, alpha=110)
+
+
+def notch(painter) -> None:
+    """A cut-out hole for an ankle or a wrist: black, with chafed edges."""
+    painter.fill(shade(WOOD_DARK, 0.05))
+    width, height = painter.rect.width, painter.rect.height
+    painter.box(0, 0, width, height, shade(WOOD_DARK, -0.1))
+    painter.box(0, 0, width, 1, shade(WOOD_LIGHT, 0.1))
+    painter.box(0, height - 1, width, 1, IRON_BLACK)
+    painter.px(0, 0, shade(WOOD_LIGHT, 0.25))
+
+
+def leather_strap(painter) -> None:
+    leather(LEATHER)(painter)
+    width, height = painter.rect.width, painter.rect.height
+    painter.px(max(0, width // 2), 1, STEEL_LIGHT)
+    painter.px(max(0, width // 2), max(1, height - 2), STEEL_LIGHT)
+
+
+def rope_coil(painter) -> None:
+    rope(ROPE, dark=ROPE_DARK)(painter)
+
+
+def chained_weight(painter) -> None:
+    """A stone block lashed with rope: the counterweight on the back."""
+    stone_brick(rgba("#514b43"))(painter)
+    width, height = painter.rect.width, painter.rect.height
+    for row in range(2, height - 2, 3):
+        painter.hline(0, row, width, ROPE_DARK)
+    painter.bevel(ROPE, IRON_BLACK, alpha=120)
+
+
+def cracked_timber(seed: int, count: int = 5):
+    return cracks(seed, count=count, color=IRON_BLACK, glow=shade(RUST, 0.05))
 
 
 def build() -> DeviceArt:
     model = Model(
         identifier="geometry.cc_cursed_stocks",
-        texture_width=64,
+        texture_width=128,
         texture_height=128,
-        visible_bounds=(2.0, 1.8),
-        visible_offset=(0.0, 0.9, 0.0),
     )
 
+    # ---------------------------------------------------------------- base --
     base = model.bone("base", [0, 0, 0])
     base.cube(
-        [-7, 0, -7], [14, 4, 14],
+        [-11, 0, -8], [22, 3, 16],
         {
-            "up": shared_face(planks(WOOD, light=WOOD_LIGHT, dark=WOOD_DARK, count=4, knots=3), "stocks_floor"),
-            # The slab is 14 wide, 4 tall and 14 deep, so all four side faces
-            # are 14x4 while the top and bottom faces are 14x14.
-            "north": shared_face(planks(WOOD_DARK, count=2, knots=1), "stocks_side"),
-            "south": shared_face(planks(WOOD_DARK, count=2, knots=1), "stocks_side"),
-            "east": shared_face(planks(WOOD_DARK, count=2, knots=1), "stocks_side"),
-            "west": shared_face(planks(WOOD_DARK, count=2, knots=1), "stocks_side"),
-            "down": shared_face(planks(WOOD_DARK, count=4, knots=2), "stocks_under"),
+            "up": face(stone_brick()),
+            "north": face(stone_brick(), share="plinth"),
+            "south": face(stone_brick(), share="plinth"),
+            "east": face(wood_frame(WOOD_MID, braces=1), share="plinth_side"),
+            "west": face(wood_frame(WOOD_MID, braces=1), share="plinth_side"),
+            "down": HIDDEN_FLAT(),
         },
     )
-    # Upright post behind the offender.
     base.cube(
-        [-2, 4, 4], [4, 12, 4],
+        [-9, 3, -6], [18, 6, 5],  # the seat block
         {
-            "north": shared_face(planks(WOOD, count=2, knots=2), "stocks_post"),
-            "south": shared_face(planks(WOOD, count=2, knots=2), "stocks_post"),
-            "east": shared_face(planks(WOOD, count=2, knots=2), "stocks_post_side"),
-            "west": shared_face(planks(WOOD, count=2, knots=2), "stocks_post_side"),
-            "up": flat_face(WOOD_DARK, "wood_dark"),
-            "down": flat_face(WOOD_DARK, "wood_dark"),
+            "up": face(wood_frame(WOOD_LIGHT, braces=2)),
+            "north": face(boards, share="board_face"),
+            "south": face(wood_frame(WOOD, braces=1), share="seat_back"),
+            "east": face(wood_frame(WOOD_MID, braces=1), size=(4, 15), share="seat_end"),
+            "west": face(wood_frame(WOOD_MID, braces=1), size=(4, 15), share="seat_end"),
+            "down": HIDDEN_FLAT(),
+        },
+    )
+    base.cube(
+        [-9, 3, 2], [18, 10, 3],  # backrest
+        {
+            "up": HIDDEN_FLAT(),
+            "north": face(skull(rgba("#7a7466"), dark=rgba("#514b43"))),
+            "south": face(wood_frame(WOOD_DARK, braces=2), share="seat_back_wide"),
+            "east": face(wood_frame(WOOD_MID, braces=1), size=(2, 10), share="backrest_end"),
+            "west": face(wood_frame(WOOD_MID, braces=1), size=(2, 10), share="backrest_end"),
+            "down": HIDDEN_FLAT(),
         },
     )
 
-    # Fixed lower board, planted on the post.
-    lower = model.bone("board_lower", [0, 12, 3], parent="base")
+    # ------------------------------------------------------- fixed lower board --
+    lower = model.bone("board_lower", [0, 9, -3], parent="base")
     lower.cube(
-        [-9, 12, -2], [18, 3, 5],
+        [-9, 9, -5], [18, 4, 11],
         {
-            "up": shared_face(_board_split(), "stocks_lower_top"),
-            "north": shared_face(_board(False), "stocks_lower_front"),
-            "south": shared_face(planks(WOOD_DARK, count=2, knots=1), "stocks_board_back"),
-            "east": flat_face(WOOD_DARK, "wood_dark"),
-            "west": flat_face(WOOD_DARK, "wood_dark"),
-            "down": shared_face(planks(WOOD_DARK, count=3, knots=1), "stocks_board_under"),
+            "up": face(boards),
+            "north": face(boards, share="board_face"),
+            "south": face(boards, share="board_face"),
+            "east": face(wood_frame(WOOD_MID, braces=1), size=(3, 11), share="board_end_tall"),
+            "west": face(wood_frame(WOOD_MID, braces=1), size=(3, 11), share="board_end_tall"),
+            "down": HIDDEN_FLAT(),
         },
     )
-
-    # Hinged upper board: drops onto the lower one and pins the captive.
-    upper = model.bone("board_upper", [0, 15, 3], parent="base")
-    upper.cube(
-        [-9, 15, -2], [18, 3, 5],
-        {
-            "down": shared_face(_board_split(), "stocks_upper_bottom", flip_v=True),
-            "north": shared_face(_board(True), "stocks_upper_front"),
-            "south": shared_face(planks(WOOD_DARK, count=2, knots=1), "stocks_board_back"),
-            "east": flat_face(WOOD_DARK, "wood_dark"),
-            "west": flat_face(WOOD_DARK, "wood_dark"),
-            "up": shared_face(planks(WOOD_LIGHT, count=2, knots=1), "stocks_upper_top"),
-        },
-    )
-    # Hinge barrels at the post.
-    for column in (-9, 7):
-        upper.cube(
-            [column, 16, 2], [2, 1, 2],
+    for column in (-7, -3, 1, 5):
+        lower.cube(
+            [column, 9, -5], [2, 4, 2],
             {
-                "north": flat_face(STEEL_DARK, "steel_dark"),
-                "south": flat_face(STEEL_DARK, "steel_dark"),
-                "east": shared_face(steel_plate(STEEL, rivets=False), "stocks_hinge"),
-                "west": shared_face(steel_plate(STEEL, rivets=False), "stocks_hinge"),
-                "up": shared_face(steel_plate(STEEL_LIGHT, rivets=False), "stocks_hinge_top"),
-                "down": flat_face(IRON_BLACK, "iron_black"),
-            },
-        )
-    # Padlock hanging on the front lip.
-    upper.cube(
-        [-2, 11, -3], [4, 4, 1],
-        {
-            "north": shared_face(_padlock(), "stocks_lock"),
-            "south": flat_face(IRON_BLACK, "iron_black"),
-            "east": flat_face(STEEL_DARK, "steel_dark"),
-            "west": flat_face(STEEL_DARK, "steel_dark"),
-            "up": flat_face(STEEL_DARK, "steel_dark"),
-            "down": flat_face(IRON_BLACK, "iron_black"),
-        },
-    )
-
-    # Chains that drag from the board ends and swing while the device works.
-    chain_paint = chain(STEEL, dark=IRON_BLACK, light=STEEL_LIGHT)
-    for name, column in (("chain_left", -9), ("chain_right", 8)):
-        bone = model.bone(name, [column + 0.5, 15, 1.5], parent="board_upper")
-        bone.cube(
-            [column, 5, 1], [1, 10, 1],
-            {
-                "north": shared_face(chain_paint, "stocks_chain"),
-                "south": shared_face(chain_paint, "stocks_chain"),
-                "east": shared_face(chain_paint, "stocks_chain"),
-                "west": shared_face(chain_paint, "stocks_chain"),
-                "up": flat_face(IRON_BLACK, "iron_black"),
-                "down": flat_face(IRON_BLACK, "iron_black"),
+                "up": HIDDEN_FLAT(),
+                "north": face(notch),
+                "south": face(notch, share="notch"),
+                "east": HIDDEN_FLAT(),
+                "west": HIDDEN_FLAT(),
+                "down": HIDDEN_FLAT(),
             },
         )
 
-    # A straw handful left behind, a nod to the "board" flavour.
-    straw = model.bone("straw", [0, 4, -4], parent="base")
-    straw.cube(
-        [-5, 4, -6], [10, 1, 3],
+    # ------------------------------------------------------ hinged upper board --
+    upper = model.bone("board_upper", [0, 13, -5.0], parent="base")
+    upper.cube(
+        [-9, 13, -4], [18, 3, 9],
         {
-            "up": shared_face(planks(ROPE, light=(214, 186, 120, 255), dark=(140, 112, 60, 255), count=3, knots=0), "stocks_straw"),
-            "north": flat_face((150, 122, 70, 255), "straw_side"),
-            "south": flat_face((150, 122, 70, 255), "straw_side"),
-            "east": flat_face((140, 112, 62, 255), "straw_side"),
-            "west": flat_face((140, 112, 62, 255), "straw_side"),
-            "down": flat_face((120, 96, 52, 255), "straw_side"),
+            "up": face(boards),
+            "north": face(boards, share="board_face"),
+            "south": face(boards, share="board_face"),
+            "east": face(wood_frame(WOOD_MID, braces=1), size=(3, 11), share="board_end"),
+            "west": face(wood_frame(WOOD_MID, braces=1), size=(3, 11), share="board_end"),
+            "down": face(boards, share="board_face"),
+        },
+    )
+    lock_bar = model.bone("lock_bar", [0, 15, -6], parent="board_upper")
+    lock_bar.cube(
+        [-2, 14, -6], [4, 2, 2],
+        {
+            "up": face(steel_panel(STEEL_MID, bands=1, seams=1, rivets=False)),
+            "north": face(steel_panel(STEEL, bands=1, seams=1, rivets=False)),
+            "south": face(steel_panel(STEEL_DARK, bands=1, seams=1, rivets=False), share="lock_back"),
+            "east": face(steel_plate(STEEL_DARK, rivets=True, grime=0.3), share="lock_side"),
+            "west": face(steel_plate(STEEL_DARK, rivets=True, grime=0.3), share="lock_side"),
+            "down": HIDDEN_FLAT(),
         },
     )
 
-    animations = _animations()
-    art = DeviceArt(
+    # ---------------------------------------------------------------- crank --
+    crank = model.bone("crank", [13.5, 8, -3], parent="base")
+    crank.cube(
+        [9, 7, -4], [4.5, 2, 2],  # axle
+        {
+            "up": face(steel_panel(STEEL_MID, bands=1, seams=1, rust=0.3)),
+            "north": HIDDEN_FLAT(),
+            "south": HIDDEN_FLAT(),
+            "east": HIDDEN_FLAT(),
+            "west": HIDDEN_FLAT(),
+            "down": HIDDEN_FLAT(),
+        },
+    )
+    crank.cube(
+        [13, 2.5, -8.5], [1, 11, 11],  # wheel in the YZ plane
+        {
+            "up": HIDDEN_FLAT(),
+            "north": HIDDEN_FLAT(),
+            "south": HIDDEN_FLAT(),
+            "east": face(spoked_wheel(STEEL, light=STEEL_HIGHLIGHT)),
+            "west": face(spoked_wheel(STEEL, light=STEEL_HIGHLIGHT), share="wheel"),
+            "down": HIDDEN_FLAT(),
+        },
+    )
+    crank.cube(
+        [12, 12, 1], [2, 2, 4],  # handle
+        {
+            "up": face(steel_panel(STEEL_LIGHT, bands=1, seams=1, rivets=False)),
+            "north": HIDDEN_FLAT(),
+            "south": HIDDEN_FLAT(),
+            "east": face(steel_panel(STEEL_MID, bands=1, seams=1, rivets=False), share="handle_tip"),
+            "west": HIDDEN_FLAT(),
+            "down": HIDDEN_FLAT(),
+        },
+    )
+
+    # ---------------------------------------------------------- weight + chains --
+    weight = model.bone("weight", [0, 4, 7], parent="base")
+    weight.cube(
+        [-4, 1, 8], [8, 5, 5],
+        {
+            "up": face(chained_weight),
+            "north": face(chained_weight, share="weight_face"),
+            "south": face(chained_weight, share="weight_face"),
+            "east": face(chained_weight, share="weight_face"),
+            "west": face(chained_weight, share="weight_face"),
+            "down": HIDDEN_FLAT(),
+        },
+    )
+    for side, column in (("left", -7), ("right", 6)):
+        chain = model.bone(f"chain_{side}", [column + 0.5, 6, 8], parent="base")
+        chain.cube(
+            [column, 4, 8], [1, 4, 1],
+            {
+                "up": face(rope_coil),
+                "north": face(rope_coil, share="rope"),
+                "south": face(rope_coil, share="rope"),
+                "east": face(rope_coil, share="rope"),
+                "west": face(rope_coil, share="rope"),
+                "down": face(rope_coil, share="rope"),
+            },
+        )
+
+    # ----------------------------------------------------------- wear plates --
+    wear_1 = model.bone("wear_1_board", [0, 16, -8], parent="board_upper")
+    wear_1.cube(
+        [-7, 16, -8], [8, 1, 4],
+        {
+            "up": face(cracked_timber(11, 4)),
+            "north": CLEAR_FLAT(),
+            "south": CLEAR_FLAT(),
+            "east": CLEAR_FLAT(),
+            "west": CLEAR_FLAT(),
+            "down": CLEAR_FLAT(),
+        },
+    )
+    wear_2 = model.bone("wear_2_flank", [13, 6, 0], parent="base")
+    wear_2.cube(
+        [12, 4, -6], [1, 8, 9],
+        {
+            "up": CLEAR_FLAT(),
+            "north": CLEAR_FLAT(),
+            "south": CLEAR_FLAT(),
+            "east": face(cracked_timber(12, 5)),
+            "west": CLEAR_FLAT(),
+            "down": CLEAR_FLAT(),
+        },
+    )
+    wear_3 = model.bone("wear_3_plinth", [0, 3, 0], parent="base")
+    wear_3.cube(
+        [-10.5, 3, -7.5], [21, 1, 5],
+        {
+            "up": face(cracked_timber(13, 6)),
+            "north": CLEAR_FLAT(),
+            "south": CLEAR_FLAT(),
+            "east": CLEAR_FLAT(),
+            "west": CLEAR_FLAT(),
+            "down": CLEAR_FLAT(),
+        },
+    )
+
+    return scale_device(DeviceArt(
         slug="cursed_stocks",
         display_name="Cursed Stocks",
         model=model,
-        animations=animations,
-        state_animations={},
+        animations=animations(),
         particle="minecraft:basic_smoke_particle",
-        accent_particle="minecraft:basic_crit_particle",
-    )
-    return finalize(art)
+        accent_particle="minecraft:basic_flame_particle",
+    ), SCALE)
 
 
-def _animations() -> list[Animation]:
-    animations: list[Animation] = []
+# --------------------------------------------------------------- animations --
+def animations() -> list[Animation]:
+    return [
+        _idle(),
+        _detect(),
+        _close(),
+        _closed(),
+        _torture(1.0, "animation.cc_cursed_stocks.torture", 220),
+        _torture(0.7, "animation.cc_cursed_stocks.torture_high", 420),
+        _strain(),
+        _burst(),
+        _open(),
+        _released(),
+        _broken(),
+    ]
 
-    idle = Animation("animation.cc_cursed_stocks.idle", 4.0, loop=True)
-    idle.key("board_upper", "rotation", 0.0, (-2, 0, 0))
-    idle.key("board_upper", "rotation", 2.0, (1.2, 0, 0))
-    idle.key("board_upper", "rotation", 4.0, (-2, 0, 0))
-    idle.key("chain_left", "rotation", 0.0, (0, 0, 0))
-    idle.key("chain_left", "rotation", 2.0, (0, 0, 5))
-    idle.key("chain_left", "rotation", 4.0, (0, 0, 0))
-    idle.key("chain_right", "rotation", 0.0, (0, 0, 0))
-    idle.key("chain_right", "rotation", 2.0, (0, 0, -5))
-    idle.key("chain_right", "rotation", 4.0, (0, 0, 0))
-    animations.append(idle)
 
+def _board(animation: Animation, times_values) -> None:
+    for time, angle in times_values:
+        animation.key("board_upper", "rotation", time, (angle, 0, 0))
+
+
+def _crank(animation: Animation, times_values) -> None:
+    """The crank wheel turns about X (its axle); the weight only sways."""
+    for time, angle in times_values:
+        animation.key("crank", "rotation", time, (angle, 0, 0))
+        animation.key("weight", "rotation", time, (0, 0, angle * 0.02))
+
+
+def _idle() -> Animation:
+    idle = Animation("animation.cc_cursed_stocks.idle", 3.6, loop=True)
+    _board(idle, ((0.0, BOARD_OPEN), (1.4, BOARD_OPEN - 2.5), (2.6, BOARD_OPEN + 1.5), (3.6, BOARD_OPEN)))
+    _crank(idle, ((0.0, 0), (3.6, 0)))
+    for time, angle in ((0.0, 0), (1.8, 1.4), (3.6, 0)):
+        idle.key("chain_left", "rotation", time, (angle, 0, 0))
+        idle.key("chain_right", "rotation", time, (-angle, 0, 0))
+    for time, y in ((0.0, 0), (1.8, -0.25), (3.6, 0)):
+        idle.key("weight", "position", time, (0, y, 0))
+    return idle
+
+
+def _detect() -> Animation:
     detect = Animation("animation.cc_cursed_stocks.detect", CAPTURE_DELAY, loop=True)
-    detect.key("board_upper", "rotation", 0.0, (-2, 0, 0))
-    detect.key("board_upper", "rotation", 0.35, (46, 0, 0))
-    detect.key("board_upper", "rotation", 0.75, (40, 0, 0))
-    detect.key("chain_left", "rotation", 0.0, (0, 0, 0))
-    detect.key("chain_left", "rotation", 0.35, (0, 0, 14))
-    detect.key("chain_left", "rotation", 0.75, (0, 0, 8))
-    detect.key("chain_right", "rotation", 0.0, (0, 0, 0))
-    detect.key("chain_right", "rotation", 0.35, (0, 0, -14))
-    detect.key("chain_right", "rotation", 0.75, (0, 0, -8))
-    animations.append(detect)
+    _board(detect, ((0.0, BOARD_OPEN), (CAPTURE_DELAY, BOARD_LIFTED)))
+    _crank(detect, ((0.0, 0), (CAPTURE_DELAY, 34)))
+    detect.key("lock_bar", "position", 0.0, (0, 0, 0))
+    detect.key("lock_bar", "position", CAPTURE_DELAY, (0, 1.2, 0))
+    for bone, sign in (("chain_left", 1), ("chain_right", -1)):
+        detect.key(bone, "rotation", 0.0, (0, 0, 0))
+        detect.key(bone, "rotation", CAPTURE_DELAY * 0.55, (7 * sign, 0, 2 * sign))
+        detect.key(bone, "rotation", CAPTURE_DELAY, (0, 0, 0))
+    return detect
 
+
+def _close() -> Animation:
     close = Animation("animation.cc_cursed_stocks.close", CLOSE_DURATION, loop=False)
-    close.key("board_upper", "rotation", 0.0, (40, 0, 0))
-    close.key("board_upper", "rotation", 0.3, (-5, 0, 0))
-    close.key("board_upper", "rotation", 0.45, (2.5, 0, 0))
-    close.key("board_upper", "rotation", 0.6, (0, 0, 0))
-    close.key("board_upper", "rotation", CLOSE_DURATION, (0, 0, 0))
-    close.key("chain_left", "rotation", 0.0, (0, 0, 8))
-    close.key("chain_left", "rotation", 0.35, (0, 0, 22))
-    close.key("chain_left", "rotation", 0.7, (0, 0, -6))
-    close.key("chain_left", "rotation", CLOSE_DURATION, (0, 0, 0))
-    close.key("chain_right", "rotation", 0.0, (0, 0, -8))
-    close.key("chain_right", "rotation", 0.35, (0, 0, -22))
-    close.key("chain_right", "rotation", 0.7, (0, 0, 6))
-    close.key("chain_right", "rotation", CLOSE_DURATION, (0, 0, 0))
-    animations.append(close)
+    _board(close, ((0.0, BOARD_LIFTED), (0.42, 6), (0.6, -3), (0.78, 0), (CLOSE_DURATION, BOARD_CLOSED)))
+    _crank(close, ((0.0, 34), (0.7, 96), (CLOSE_DURATION, 104)))
+    close.key("lock_bar", "position", 0.0, (0, 1.2, 0))
+    close.key("lock_bar", "position", 0.5, (0, 0, 0))
+    close.key("lock_bar", "position", CLOSE_DURATION, (0, 0, 0))
+    close.key("base", "rotation", 0.0, (0, 0, 0))
+    close.key("base", "rotation", 0.45, (0, 0, -1.8))
+    close.key("base", "rotation", 0.75, (0, 0, 1.2))
+    close.key("base", "rotation", CLOSE_DURATION, (0, 0, 0))
+    for bone, sign in (("chain_left", 1), ("chain_right", -1)):
+        close.key(bone, "rotation", 0.0, (0, 0, 0))
+        close.key(bone, "rotation", 0.3, (-9 * sign, 0, -3 * sign))
+        close.key(bone, "rotation", 0.8, (4 * sign, 0, 0))
+        close.key(bone, "rotation", CLOSE_DURATION, (0, 0, 0))
+    return close
 
+
+def _closed() -> Animation:
     closed = Animation("animation.cc_cursed_stocks.closed", CLOSED_PAUSE, loop=True)
-    closed.key("board_upper", "rotation", 0.0, (0, 0, 0))
-    closed.key("board_upper", "rotation", 0.25, (0.8, 0, 0))
-    closed.key("board_upper", "rotation", 0.5, (0, 0, 0))
-    animations.append(closed)
+    _board(closed, ((0.0, 0), (0.2, -1.2), (0.5, 0)))
+    _crank(closed, ((0.0, 104), (0.5, 104)))
+    closed.key("lock_bar", "position", 0.0, (0, 0, 0))
+    closed.key("lock_bar", "position", 0.5, (0, 0, 0))
+    return closed
 
-    torture = Animation("animation.cc_cursed_stocks.torture", TORTURE_INTERVAL, loop=True)
-    for time, angle in ((0.0, 0), (0.6, 0), (0.72, 3.5), (0.84, -3), (0.96, 2.4), (1.08, -1.6), (1.2, 0), (3.0, 0), (3.1, 2), (3.3, -1.6), (3.6, 0), (4.0, 0)):
+
+def _torture(amplitude: float, identifier: str, spin: float) -> Animation:
+    torture = Animation(identifier, TORTURE_INTERVAL, loop=True)
+    _board(torture, ((0.0, 0), (0.3 * amplitude, -2.2 * amplitude), (0.8 * amplitude, 2.4 * amplitude),
+                     (1.4 * amplitude, 0), (TORTURE_INTERVAL, 0)))
+    _crank(torture, ((0.0, 104), (TORTURE_INTERVAL, 104 + spin)))
+    for time, angle in ((0.0, 0), (0.35 * amplitude, 2.6 * amplitude), (0.9 * amplitude, -2.2 * amplitude),
+                        (TORTURE_INTERVAL, 0)):
         torture.key("base", "rotation", time, (0, 0, angle))
-    torture.key("base", "position", 0.0, (0, 0, 0))
-    torture.key("base", "position", 0.72, (0.5, 0, 0))
-    torture.key("base", "position", 0.9, (-0.5, 0, 0))
-    torture.key("base", "position", 1.2, (0, 0, 0))
-    torture.key("base", "position", 4.0, (0, 0, 0))
-    torture.key("board_upper", "rotation", 0.0, (0, 0, 0))
-    torture.key("board_upper", "rotation", 0.5, (-3.5, 0, 0))
-    torture.key("board_upper", "rotation", 1.0, (0, 0, 0))
-    torture.key("board_upper", "rotation", 3.0, (0, 0, 0))
-    torture.key("board_upper", "rotation", 3.4, (-2, 0, 0))
-    torture.key("board_upper", "rotation", 4.0, (0, 0, 0))
-    torture.key("chain_left", "rotation", 0.0, (0, 0, 0))
-    torture.key("chain_left", "rotation", 0.6, (0, 0, 10))
-    torture.key("chain_left", "rotation", 1.4, (0, 0, -4))
-    torture.key("chain_left", "rotation", 2.2, (0, 0, 0))
-    torture.key("chain_left", "rotation", 4.0, (0, 0, 0))
-    torture.key("chain_right", "rotation", 0.0, (0, 0, 0))
-    torture.key("chain_right", "rotation", 0.6, (0, 0, -10))
-    torture.key("chain_right", "rotation", 1.4, (0, 0, 4))
-    torture.key("chain_right", "rotation", 2.2, (0, 0, 0))
-    torture.key("chain_right", "rotation", 4.0, (0, 0, 0))
-    animations.append(torture)
+    torture.key("board_lower", "position", 0.0, (0, 0, 0))
+    torture.key("board_lower", "position", 0.4 * amplitude, (0, 0.3 * amplitude, 0))
+    torture.key("board_lower", "position", TORTURE_INTERVAL, (0, 0, 0))
+    for bone, sign in (("chain_left", 1), ("chain_right", -1)):
+        torture.key(bone, "rotation", 0.0, (0, 0, 0))
+        torture.key(bone, "rotation", 0.4 * amplitude, (10 * amplitude * sign, 0, 3 * sign))
+        torture.key(bone, "rotation", 1.0 * amplitude, (-6 * amplitude * sign, 0, -2 * sign))
+        torture.key(bone, "rotation", TORTURE_INTERVAL, (0, 0, 0))
+    return torture
 
-    strain = Animation("animation.cc_cursed_stocks.strain", 0.6, loop=False)
-    for time, angle in ((0.0, 0), (0.08, 6), (0.16, -5), (0.26, 4), (0.36, -3), (0.48, 1.5), (0.6, 0)):
-        strain.key("base", "rotation", time, (0, 0, angle))
-    strain.key("board_upper", "rotation", 0.0, (0, 0, 0))
-    strain.key("board_upper", "rotation", 0.1, (-4.5, 0, 0))
-    strain.key("board_upper", "rotation", 0.28, (1.8, 0, 0))
-    strain.key("board_upper", "rotation", 0.5, (0, 0, 0))
-    strain.key("board_upper", "rotation", 0.6, (0, 0, 0))
-    animations.append(strain)
 
-    open_animation = Animation("animation.cc_cursed_stocks.open", RELEASE_TIME + 0.3, loop=False)
-    open_animation.key("board_upper", "rotation", 0.0, (0, 0, 0))
-    open_animation.key("board_upper", "rotation", 0.3, (3, 0, 0))
-    open_animation.key("board_upper", "rotation", 0.6, (58, 0, 0))
-    open_animation.key("board_upper", "rotation", RELEASE_TIME + 0.3, (52, 0, 0))
-    open_animation.key("chain_left", "rotation", 0.0, (0, 0, 0))
-    open_animation.key("chain_left", "rotation", 0.5, (0, 0, 18))
-    open_animation.key("chain_left", "rotation", RELEASE_TIME + 0.3, (0, 0, 6))
-    open_animation.key("chain_right", "rotation", 0.0, (0, 0, 0))
-    open_animation.key("chain_right", "rotation", 0.5, (0, 0, -18))
-    open_animation.key("chain_right", "rotation", RELEASE_TIME + 0.3, (0, 0, -6))
-    animations.append(open_animation)
+def _strain() -> Animation:
+    strain = Animation("animation.cc_cursed_stocks.strain", STRAIN_TIME, loop=False)
+    _board(strain, ((0.0, 0), (0.09, -4.4), (0.19, 3.6), (0.3, -2.4), (0.45, 1.2), (STRAIN_TIME, 0)))
+    strain.key("base", "position", 0.0, (0, 0, 0))
+    strain.key("base", "position", 0.09, (0.4, 0, 0))
+    strain.key("base", "position", 0.19, (-0.4, 0, 0))
+    strain.key("base", "position", STRAIN_TIME, (0, 0, 0))
+    return strain
 
+
+def _burst() -> Animation:
+    burst = Animation("animation.cc_cursed_stocks.burst", BURST_TIME, loop=False)
+    burst.key("base", "position", 0.0, (0, 0, 0))
+    burst.key("base", "position", 0.1, (0, 0.45, 0))
+    burst.key("base", "position", BURST_TIME, (0, 0, 0))
+    _board(burst, ((0.0, 0), (0.1, -8), (0.3, 3), (BURST_TIME, 0)))
+    _crank(burst, ((0.0, 104), (BURST_TIME, 168)))
+    return burst
+
+
+def _open() -> Animation:
+    opened = Animation("animation.cc_cursed_stocks.open", RELEASE_TIME + 0.5, loop=False)
+    end = RELEASE_TIME + 0.5
+    _board(opened, ((0.0, 0), (0.35, -34), (0.65, -58), (0.9, -40), (end, BOARD_OPEN)))
+    _crank(opened, ((0.0, 104), (end, 30)))
+    opened.key("lock_bar", "position", 0.0, (0, 0, 0))
+    opened.key("lock_bar", "position", 0.4, (0, 1.6, 0))
+    opened.key("lock_bar", "position", end, (0, 1.2, 0))
+    return opened
+
+
+def _released() -> Animation:
     released = Animation("animation.cc_cursed_stocks.released", RELEASE_TIME, loop=False)
-    released.key("board_upper", "rotation", 0.0, (52, 0, 0))
-    released.key("board_upper", "rotation", 0.4, (44, 0, 0))
-    released.key("board_upper", "rotation", RELEASE_TIME, (47, 0, 0))
-    released.key("chain_left", "rotation", 0.0, (0, 0, 6))
-    released.key("chain_left", "rotation", RELEASE_TIME, (0, 0, 0))
-    released.key("chain_right", "rotation", 0.0, (0, 0, -6))
-    released.key("chain_right", "rotation", RELEASE_TIME, (0, 0, 0))
-    animations.append(released)
+    _board(released, ((0.0, BOARD_OPEN), (0.35, BOARD_OPEN - 3), (0.7, BOARD_OPEN + 2), (RELEASE_TIME, BOARD_OPEN)))
+    _crank(released, ((0.0, 30), (RELEASE_TIME, 0)))
+    return released
 
+
+def _broken() -> Animation:
     broken = Animation("animation.cc_cursed_stocks.broken", BROKEN_TIME, loop="hold_on_last_frame")
-    broken.key("board_upper", "rotation", 0.0, (0, 0, 0))
-    broken.key("board_upper", "rotation", 0.5, (-10, 0, 6))
-    broken.key("board_upper", "rotation", 1.0, (-6, 0, 4))
-    broken.key("board_upper", "rotation", BROKEN_TIME, (-7, 0, 5))
+    _board(broken, ((0.0, 0), (0.7, -22), (BROKEN_TIME, 76)))
     broken.key("board_upper", "position", 0.0, (0, 0, 0))
-    broken.key("board_upper", "position", 1.0, (0, -3, -1))
-    broken.key("board_upper", "position", BROKEN_TIME, (0, -3, -1))
+    broken.key("board_upper", "position", 1.0, (0, -2, 1))
+    broken.key("board_upper", "position", BROKEN_TIME, (0, -3.5, 2.4))
+    broken.key("board_lower", "rotation", 0.0, (0, 0, 0))
+    broken.key("board_lower", "rotation", 0.9, (6, 0, -4))
+    broken.key("board_lower", "rotation", BROKEN_TIME, (9, 0, -6))
     broken.key("base", "rotation", 0.0, (0, 0, 0))
-    broken.key("base", "rotation", 0.8, (-3, 0, 4))
-    broken.key("base", "rotation", BROKEN_TIME, (-2, 0, 4))
-    broken.key("chain_left", "rotation", 0.0, (0, 0, 0))
-    broken.key("chain_left", "rotation", 0.6, (0, 0, 26))
-    broken.key("chain_left", "rotation", BROKEN_TIME, (0, 0, 18))
-    broken.key("chain_right", "rotation", 0.0, (0, 0, 0))
-    broken.key("chain_right", "rotation", 0.6, (0, 0, -22))
-    broken.key("chain_right", "rotation", BROKEN_TIME, (0, 0, -15))
-    animations.append(broken)
-
-    return animations
+    broken.key("base", "rotation", BROKEN_TIME, (0, 0, 3.5))
+    broken.key("crank", "rotation", 0.0, (104, 0, 0))
+    broken.key("crank", "rotation", BROKEN_TIME, (74, 0, 0))
+    return broken

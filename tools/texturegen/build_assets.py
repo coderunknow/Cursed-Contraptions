@@ -23,7 +23,14 @@ sys.path.insert(0, str(HERE / "devices"))
 import zlib
 
 from anim import write_animations  # noqa: E402
-from model import bake_atlas, face_pixel_size, pack_faces, write_geometry  # noqa: E402
+from model import (  # noqa: E402
+    apply_auto_bounds,
+    bake_atlas,
+    face_pixel_size,
+    model_bounds,
+    pack_faces,
+    write_geometry,
+)
 from canvas import Painter, Rect, rgba  # noqa: E402
 from png_io import Image, png_color_type  # noqa: E402
 from artkit import (  # noqa: E402
@@ -31,13 +38,20 @@ from artkit import (  # noqa: E402
     IRON_BLACK, OBSIDIAN, OBSIDIAN_DARK, OBSIDIAN_FACET, OBSIDIAN_LIGHT, ROPE,
     ROPE_DARK, RUST, SOUL, SOUL_PALE, STEEL, STEEL_DARK, STEEL_HIGHLIGHT,
     STEEL_LIGHT, STEEL_MID, WOOD, WOOD_DARK, WOOD_LIGHT, WOOD_MID,
-    obsidian, planks, steel_plate,
+    obsidian, planks, steel_panel, steel_plate, stone_brick,
 )  # noqa: E402
 from pipeline import (  # noqa: E402
     DEVICE_STATES,
+    OVERLAYS,
+    REQUIRED_ANIMATIONS,
+    WEAR_STAGES,
     DeviceArt,
     client_entity_json,
+    collision_from_model,
     controller_json,
+    overlay_state_name,
+    wear_animations,
+    wear_controller_json,
     write_json,
 )
 
@@ -52,24 +66,10 @@ DEVICE_MODULES = (
     "black_reliquary",
 )
 
-# Collision footprint per device, in blocks. The device occupies its own tile
-# so the captive is contained inside the contraption.
-COLLISION = {
-    "iron_maiden": {"width": 1.3, "height": 2.5},
-    "cursed_stocks": {"width": 1.8, "height": 1.0},
-    "gravebinder_cage": {"width": 1.5, "height": 2.5},
-    "regret_rack": {"width": 2.0, "height": 0.9},
-    "black_reliquary": {"width": 1.7, "height": 2.8},
-}
-
-# Where the captive's feet rest relative to the device origin.
-SEAT_HEIGHT = {
-    "iron_maiden": 0.0,
-    "cursed_stocks": 0.0,
-    "gravebinder_cage": 0.0,
-    "regret_rack": 0.35,
-    "black_reliquary": 0.0,
-}
+# Cube names that protrude from the footprint (a crank wheel, a hanging chain,
+# a swinging lantern). They are real geometry but must not inflate the hitbox
+# the player has to click or the space the device claims on the ground.
+COLLISION_EXCLUDE = ("crank", "winch", "chain_left", "chain_right", "swags", "lantern")
 
 FAMILY = {
     "iron_maiden": "iron_maiden",
@@ -111,9 +111,12 @@ ITEM_ICONS = {
 }
 
 
-def behavior_entity(art: DeviceArt) -> dict:
+# Hitboxes derived during the build, keyed by device slug (validation reuses them).
+BUILT_COLLISION: dict[str, dict] = {}
+
+
+def behavior_entity(art: DeviceArt, collision: dict) -> dict:
     slug = art.slug
-    collision = COLLISION[slug]
 
     return {
         "format_version": "1.21.0",
@@ -139,6 +142,21 @@ def behavior_entity(art: DeviceArt) -> dict:
                     "cc:armor_count": {
                         "type": "int",
                         "range": [0, 4],
+                        "default": 0,
+                        "client_sync": True,
+                    },
+                    # Soul charge (0-4) escalates while a captive is held; it is
+                    # client-synced so the animation controller can switch to the
+                    # hotter torture loop without another server round trip.
+                    "cc:charge": {
+                        "type": "int",
+                        "range": [0, 4],
+                        "default": 0,
+                        "client_sync": True,
+                    },
+                    "cc:souls": {
+                        "type": "int",
+                        "range": [0, 1000],
                         "default": 0,
                         "client_sync": True,
                     },
@@ -225,21 +243,23 @@ def behavior_entity(art: DeviceArt) -> dict:
                 # is inside it. An earlier build shrank the occupied hitbox to a
                 # sub-block box parked below the world, which meant a rescuer
                 # aiming at a full device could never hit it and the rescue
-                # interaction was unreachable. A frame that shelters its captive
-                # is also the right behaviour: hitting the device damages the
-                # frame, not the prisoner.
+                # interaction was unreachable.
+                #
+                # Seated is a touch larger than empty: the closed frame swells
+                # around whoever is inside, so a rescuer's arrows and swings land
+                # on the frame (damaging it) instead of the prisoner, and it is
+                # always obvious that the device is occupied.
                 "cc:seated": {
                     "minecraft:custom_hit_test": {
                         "hitboxes": [
                             {
-                                "width": collision["width"],
-                                "height": collision["height"],
+                                "width": round(collision["width"] * 1.12, 3),
+                                "height": round(collision["height"] * 1.06, 3),
                                 "pivot": [0, collision["height"] / 2, 0],
                             }
                         ]
                     }
                 },
-                # Kept separate so the two states stay independently tunable.
                 "cc:empty": {
                     "minecraft:custom_hit_test": {
                         "hitboxes": [
@@ -277,6 +297,15 @@ def write_devices() -> list[DeviceArt]:
         art = module.build()
         built.append(art)
 
+        # Visible bounds are derived from the geometry so a resized device can
+        # never ship stale bounds (the v0.1.3 models outgrew their boxes).
+        apply_auto_bounds(art.model)
+        # The wear stages are generated from the ``wear_<stage>_*`` bones, so a
+        # device cannot forget to ship one.
+        art.animations.extend(wear_animations(art))
+        collision = collision_from_model(art, ignore=COLLISION_EXCLUDE)
+        BUILT_COLLISION[art.slug] = collision
+
         # Deterministic per-device seed: Python's str hash is salted per process,
         # so using it here made every rebuild produce slightly different art.
         seed = zlib.crc32(module_name.encode("utf-8")) % 9973
@@ -291,8 +320,12 @@ def write_devices() -> list[DeviceArt]:
             RP / "animation_controllers" / f"{art.slug}.animation_controllers.json",
             controller_json(art),
         )
+        write_json(
+            RP / "animation_controllers" / f"{art.slug}.wear_controllers.json",
+            wear_controller_json(art),
+        )
         write_json(RP / "entity" / f"{art.slug}.entity.json", client_entity_json(art))
-        write_json(BP / "entities" / f"{art.slug}.json", behavior_entity(art))
+        write_json(BP / "entities" / f"{art.slug}.json", behavior_entity(art, collision))
         write_json(
             BP / "blocks" / f"{art.slug}_block.json",
             {
@@ -517,9 +550,9 @@ def write_block_textures() -> None:
     v0.1.2 invisibility report was traced to indexed/grayscale PNGs.
     """
     recipes = {
-        "iron_maiden": steel_plate(STEEL, rivets=True, grime=0.18, rust=0.25),
-        "cursed_stocks": planks(WOOD, count=5, knots=4),
-        "gravebinder_cage": steel_plate(STEEL_DARK, rivets=True, grime=0.24, rust=0.4),
+        "iron_maiden": stone_brick(),
+        "cursed_stocks": steel_panel(STEEL_DARK, bands=3, rust=0.45),
+        "gravebinder_cage": stone_brick(),
         "regret_rack": planks(WOOD_DARK, count=5, knots=3),
         "black_reliquary": obsidian(OBSIDIAN, facet=OBSIDIAN_FACET),
     }
@@ -579,7 +612,7 @@ def write_language() -> None:
     lines.extend(
         [
             "",
-            "action.cc.use_device=Inspect / Reinforce",
+            "action.cc.use_device=Inspect / Repair / Reinforce",
             "action.cc.rescue_captive=Use / Rescue",
             "",
             "pack.name=Cursed Contraptions",
@@ -615,7 +648,9 @@ def verify(arts: list[DeviceArt]) -> list[str]:
                     # Faces without an explicit size must match Bedrock's
                     # integer rounding of the cube face, otherwise the UV rect
                     # and the rendered face disagree and the texture stretches.
-                    if cube.faces[face].size is None:
+                    # Shared patches are exempt: the rect follows the group's
+                    # first member and the stretch guard above covers them.
+                    if cube.faces[face].size is None and not cube.faces[face].share:
                         expected = face_pixel_size(face, cube.size, cube.inflate)
                         if (rect.width, rect.height) != expected:
                             problems.append(
@@ -623,20 +658,26 @@ def verify(arts: list[DeviceArt]) -> list[str]:
                                 f"{rect.width}x{rect.height}, Bedrock rounds it to {expected[0]}x{expected[1]}"
                             )
 
-        # 3. Every face covered by one shared atlas patch must agree on size.
+        # 3. A shared atlas patch may be stretched onto a differently sized face
+        #    (the painters are procedural), but a wildly different aspect ratio
+        #    turns circles into ellipses and bars into slabs, so those are
+        #    rejected in favour of a dedicated patch.
         seen: dict[str, tuple[int, int]] = {}
         for bone in art.model.bones:
             for cube_index, cube in enumerate(bone.cubes):
                 for face, spec in cube.faces.items():
                     if not spec.share:
                         continue
-                    dimensions = spec.dimensions(face, cube.size, cube.inflate)
+                    width, height = spec.dimensions(face, cube.size, cube.inflate)
                     previous = seen.get(spec.share)
                     if previous is None:
-                        seen[spec.share] = dimensions
-                    elif previous != dimensions:
+                        seen[spec.share] = (width, height)
+                        continue
+                    previous_ratio = previous[0] / max(1, previous[1])
+                    ratio = width / max(1, height)
+                    if max(previous_ratio, ratio) / max(1e-6, min(previous_ratio, ratio)) > 3.0:
                         problems.append(
-                            f"{art.slug}: patch '{spec.share}' is used at {previous} and {dimensions}"
+                            f"{art.slug}: patch '{spec.share}' is stretched from {previous} to {(width, height)}"
                         )
 
         # 4. Animation bones must exist in the model.
@@ -645,6 +686,23 @@ def verify(arts: list[DeviceArt]) -> list[str]:
             missing = set(animation.bones) - bone_names
             if missing:
                 problems.append(f"{art.slug}: {animation.identifier} animates missing bones {sorted(missing)}")
+
+        # 4b. Every alias the controller asks for must be shipped.
+        shipped = art.animation_names()
+        for required in REQUIRED_ANIMATIONS:
+            if required not in shipped:
+                problems.append(f"{art.slug}: missing required animation '{required}'")
+        for stage in range(WEAR_STAGES):
+            if f"wear_{stage}" not in shipped:
+                problems.append(f"{art.slug}: missing wear animation 'wear_{stage}'")
+
+        # 4c. The hitbox must be walkable from every side: a player has to be
+        #     able to stand next to the device to interact with or rescue it.
+        collision = BUILT_COLLISION.get(art.slug) or collision_from_model(art, ignore=COLLISION_EXCLUDE)
+        half = collision["width"] / 2 + 0.4
+        for label, dx, dz in (("north", 0, -half), ("south", 0, half), ("east", half, 0), ("west", -half, 0)):
+            if _overlaps_any_cube(art, dx, dz, collision["height"] + 1.8):
+                problems.append(f"{art.slug}: {label} side is blocked by its own geometry (hitbox {collision})")
 
         # 5. Every device state needs controller coverage.
         controller = controller_json(art)
@@ -661,7 +719,58 @@ def verify(arts: list[DeviceArt]) -> list[str]:
                 for target in transition:
                     if target not in states:
                         problems.append(f"{art.slug}: state {state_name} transitions to missing state {target}")
+
+        # 5b. Reachability: every state must be reachable from idle, otherwise a
+        #     server-side tag change could strand the client animation.
+        if not _controller_reachable(states):
+            problems.append(f"{art.slug}: animation controller has unreachable states")
+
+        # 5c. A surface must never be left invisible where wall art is expected:
+        #     transparent patches are allowed only on declared wall/gap faces.
+        solid = sum(
+            1 for bone in art.model.bones for cube in bone.cubes
+            for face_key in cube.faces
+        )
+        if solid == 0:
+            problems.append(f"{art.slug}: model has no faces to paint")
     return problems
+
+
+def _overlaps_any_cube(art: DeviceArt, dx: float, dz: float, height: float) -> bool:
+    """True when a stand-in box at (dx, dz) intersects the device geometry."""
+    min_x, min_y, min_z, max_x, max_y, max_z = model_bounds(art.model, ignore=COLLISION_EXCLUDE)
+    stand_min_x, stand_max_x = dx - 0.3, dx + 0.3
+    stand_min_z, stand_max_z = dz - 0.3, dz + 0.3
+    for bone in art.model.bones:
+        if bone.name in COLLISION_EXCLUDE:
+            continue
+        for cube in bone.cubes:
+            cube_min_x = cube.origin[0] / 16
+            cube_max_x = (cube.origin[0] + cube.size[0]) / 16
+            cube_max_y = (cube.origin[1] + cube.size[1]) / 16
+            cube_min_y = cube.origin[1] / 16
+            cube_min_z = cube.origin[2] / 16
+            cube_max_z = (cube.origin[2] + cube.size[2]) / 16
+            if cube_max_y <= 0.2 or cube_min_y >= height:
+                continue
+            if (stand_min_x < cube_max_x and stand_max_x > cube_min_x
+                    and stand_min_z < cube_max_z and stand_max_z > cube_min_z):
+                return True
+    return False
+
+
+def _controller_reachable(states: dict) -> bool:
+    """Walk the transition graph from ``idle`` and report any stranded state."""
+    seen = {"idle"}
+    pending = ["idle"]
+    while pending:
+        current = pending.pop()
+        for transition in states.get(current, {}).get("transitions", []):
+            for target in transition:
+                if target not in seen:
+                    seen.add(target)
+                    pending.append(target)
+    return seen >= set(states)
 
 
 def main() -> int:

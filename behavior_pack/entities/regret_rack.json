@@ -39,6 +39,24 @@
           ],
           "default": 0,
           "client_sync": true
+        },
+        "cc:charge": {
+          "type": "int",
+          "range": [
+            0,
+            4
+          ],
+          "default": 0,
+          "client_sync": true
+        },
+        "cc:souls": {
+          "type": "int",
+          "range": [
+            0,
+            1000
+          ],
+          "default": 0,
+          "client_sync": true
         }
       }
     },
@@ -51,8 +69,8 @@
         ]
       },
       "minecraft:collision_box": {
-        "width": 2.0,
-        "height": 0.9
+        "width": 1.78,
+        "height": 2.25
       },
       "minecraft:physics": {
         "has_gravity": false,
@@ -162,11 +180,11 @@
         "minecraft:custom_hit_test": {
           "hitboxes": [
             {
-              "width": 2.0,
-              "height": 0.9,
+              "width": 1.994,
+              "height": 2.385,
               "pivot": [
                 0,
-                0.45,
+                1.125,
                 0
               ]
             }
@@ -177,11 +195,11 @@
         "minecraft:custom_hit_test": {
           "hitboxes": [
             {
-              "width": 2.0,
-              "height": 0.9,
+              "width": 1.78,
+              "height": 2.25,
               "pivot": [
                 0,
-                0.45,
+                1.125,
                 0
               ]
             }

@@ -18,15 +18,23 @@
         "close": "animation.cc_iron_maiden.close",
         "closed": "animation.cc_iron_maiden.closed",
         "torture": "animation.cc_iron_maiden.torture",
+        "torture_high": "animation.cc_iron_maiden.torture_high",
         "strain": "animation.cc_iron_maiden.strain",
+        "burst": "animation.cc_iron_maiden.burst",
         "open": "animation.cc_iron_maiden.open",
         "released": "animation.cc_iron_maiden.released",
         "broken": "animation.cc_iron_maiden.broken",
-        "controller": "controller.animation.cc_iron_maiden.state"
+        "wear_0": "animation.cc_iron_maiden.wear_0",
+        "wear_1": "animation.cc_iron_maiden.wear_1",
+        "wear_2": "animation.cc_iron_maiden.wear_2",
+        "wear_3": "animation.cc_iron_maiden.wear_3",
+        "state": "controller.animation.cc_iron_maiden.state",
+        "wear": "controller.animation.cc_iron_maiden.wear"
       },
       "scripts": {
         "animate": [
-          "controller"
+          "state",
+          "wear"
         ]
       },
       "render_controllers": [

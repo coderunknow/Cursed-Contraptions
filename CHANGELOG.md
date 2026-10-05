@@ -5,6 +5,108 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog 1.1](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-10-05
+
+Scale, animation, mechanics, and polish release, built from the request
+*"the objects should be bigger, have more animations and more mechanics"* and
+the bug report *"the mobs when stuck, it still can be pushed out but still get
+damage"*. Identifiers, pack UUIDs, dynamic-property keys, recipes, and the
+declared `min_engine_version [1, 21, 60]` / `@minecraft/server` 1.17.0
+dependency are unchanged; the new entity properties (`cc:charge`, `cc:souls`)
+and tags are additive, so existing worlds keep their devices, captives,
+durability, and reinforcements. No Beta APIs are used.
+
+### Fixed
+
+- **Damage outside the device (reported bug).** A captive was damaged on a
+  timer with no containment check, and containment only reacted once a shoved
+  mob had drifted 2.5 blocks — so a mob pushed out of the frame kept taking
+  damage while it was visibly outside. The hold is now an anchoring loop
+  (`utils/containment.js`): mob velocity is cleared every device tick, a capped
+  impulse pulls the captive back to its seat, and a rate-limited teleport
+  correction lands when it is genuinely out of the seat window. Damage,
+  healing, and soul-charge growth are all gated behind a verified containment
+  check, so a captive that is outside is pulled back instead of being hurt. A
+  captive that cannot be reseated `maxFailedReseatCycles` times is released
+  with a message rather than left in limbo.
+- **Stale capture locks.** A player who relogged between capture and release
+  could keep the `cc:trapped` tag, the movement lock, and the hidden
+  `cc:movement_was_enabled` save. Recovery now clears all three from one shared
+  code path (`TortureDevice.clearStaleCapture`).
+- **Double-strike race.** A venting surge rescheduled the torture timer while
+  the previous cycle was still pending, which could deliver two strikes for one
+  cycle. `_scheduleNextDamage()` always retires the pending timer first.
+- **Vestigial hit tests.** The seated and empty component groups were byte-for-byte
+  identical. The seated hitbox is now slightly larger, so a rescuer's arrows and
+  swings land on the closed frame instead of the prisoner inside it.
+
+### Added
+
+- **Soul-charge escalation.** Every strike a contained captive survives winds
+  the device one step (`cc:charge`, 0–4): cycles shorten by 10 % per step and
+  damage grows by 30 % per step. At 4/4 the meter vents — a soul is harvested
+  and one surge strike lands at 1.5× the charged damage. Charge decays while
+  the device is empty, and the client-synced property switches the animation
+  controller to the hotter `torturing_high` loop with no extra round trip.
+- **Field repair.** Interact with a damaged device while holding its configured
+  material — iron (`ingot`/`bars`/`chain`, or an iron block), planks/sticks for
+  the timber frames, bone, or obsidian — to restore a fraction of maximum
+  durability. A full device refuses the material instead of consuming it.
+- **Soul shards and immunity.** Vented souls drop as `cc:soul_shard` items when
+  the frame is destroyed. Sneak + use any device while holding a shard to spend
+  it for 5 minutes of immunity; a warded player is never detected, and the
+  shard is consumed only when the ward binds. `/scriptevent cc:souls` grants a
+  stack to admins for testing.
+- **Action-bar HUD.** A captured player sees the device, state, seconds held,
+  charge pips, and how to get out. It refreshes on every meaningful change and
+  on a slow timer, and is cooldown-limited so it never spams.
+- **Sound cues.** Profile-driven vanilla sounds for strike, slam, latch,
+  release, reinforcement, repair, soul harvest, surge, and break. No new
+  assets, and playback is wrapped so a missing id cannot break gameplay.
+- **Wear animations.** A second animation controller per device adds
+  `wear_0`…`wear_3`: cracks and rust spread from the panels to the roof/door and
+  finally the plinth as durability falls, so a damaged device looks damaged.
+- **Burst overlay.** The `burst` animation plays for the venting surge.
+
+### Changed
+
+- **All five devices are bigger.** Collision boxes and visible bounds are now
+  derived from the finished geometry (world units): iron maiden 1.2 × 2.6,
+  cursed stocks 2.25 × 1.59, gravebinder cage 2.27 × 2.62, regret rack
+  1.78 × 2.25, black reliquary 1.79 × 2.68 — against v0.1.3 heights of
+  1.81 / 1.12 / 1.50 / 0.88 / 2.06. Bounds can no longer ship stale, because a
+  resized model regenerates them.
+- **Fifteen animations per device** (`idle`, `detect`, `close`, `closed`,
+  `torture`, `torture_high`, `strain`, `burst`, `open`, `released`, `broken`,
+  `wear_0`…`wear_3`), with anchored bones and axis-correct mechanism wheels.
+- **Atlas quality.** Broad patches were split into aspect-specific keys so no
+  shared patch is stretched across a thin post or edge, and the painters got
+  per-device palettes, rivets, grain, rust and glow passes.
+- **Containment tuning.** Seat refresh is once per second, corrections are rate
+  limited to one per 10 ticks, the leash is 18 blocks, and particle work per
+  event is capped by `performance.maxParticlesPerEvent`.
+
+### Validation
+
+- `npm test` is now **38 tests** (9 unit, 12 device lifecycle, 2 manager, 9
+  admin-command, 13 mechanics, 2 integration): the new `tests/mechanics.test.js`
+  pins the shove → reseat → no-damage contract, the release path when reseating
+  fails, the escalation sequence `[14, 18, 22, 26, 46]`, soul-shard drops, field
+  repair, the immunity ward, the HUD, rescue, the single-drop guarantee, and the
+  death/respawn movement recovery (both directly and through the real entry
+  point). Shared fixtures moved to `tests/support/fakes.mjs`.
+- `npm run typecheck` passes against the stable 1.17.0 API surface.
+- `tests/validate_build.py` now resolves both controller files per device
+  (state + wear), validates `cc:charge`/`cc:souls` on every entity, and checks
+  client-entity controller aliases against the controller definitions.
+- `tools/texturegen/build_assets.py` verifies required animations, bone
+  references, atlas bounds, hitbox walkability on all four sides, and
+  controller reachability before writing a single file.
+- Automated checks cannot render assets or drive a real client input path.
+  In-engine rendering, the knockback/shove feel, the HUD, sound mix,
+  multiplayer rescue, and Realm persistence still need a manual pass; see
+  `tests/GAMETESTS.md` and `V0.1.4_PLAN.md`.
+
 ## [0.1.3] - 2026-10-04
 
 Art, containment, and placement release, built from three in-game reports:

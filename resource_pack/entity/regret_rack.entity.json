@@ -18,15 +18,23 @@
         "close": "animation.cc_regret_rack.close",
         "closed": "animation.cc_regret_rack.closed",
         "torture": "animation.cc_regret_rack.torture",
+        "torture_high": "animation.cc_regret_rack.torture_high",
         "strain": "animation.cc_regret_rack.strain",
+        "burst": "animation.cc_regret_rack.burst",
         "open": "animation.cc_regret_rack.open",
         "released": "animation.cc_regret_rack.released",
         "broken": "animation.cc_regret_rack.broken",
-        "controller": "controller.animation.cc_regret_rack.state"
+        "wear_0": "animation.cc_regret_rack.wear_0",
+        "wear_1": "animation.cc_regret_rack.wear_1",
+        "wear_2": "animation.cc_regret_rack.wear_2",
+        "wear_3": "animation.cc_regret_rack.wear_3",
+        "state": "controller.animation.cc_regret_rack.state",
+        "wear": "controller.animation.cc_regret_rack.wear"
       },
       "scripts": {
         "animate": [
-          "controller"
+          "state",
+          "wear"
         ]
       },
       "render_controllers": [

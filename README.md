@@ -2,20 +2,30 @@
 
 **Five animated, placeable trap devices for Minecraft Bedrock multiplayer.**
 
-Release **v0.1.3** · Declared minimum engine version **1.21.60**; prepared for the reported **Bedrock 26.2 multiplayer test**. Uses stable `@minecraft/server` 1.17.0; no Beta APIs toggle is required.
+Release **v0.1.4** · Declared minimum engine version **1.21.60**; prepared for the reported **Bedrock 26.2 multiplayer test**. Uses stable `@minecraft/server` 1.17.0; no Beta APIs toggle is required. Worlds created with v0.1.0–v0.1.3 keep their devices, captives, durability, and reinforcements.
 
 ## Features
 
-- Five craftable devices with distinct capture ranges, damage, cycle speeds, and durability;
-  hand-painted RGBA art for every entity atlas, block face, and inventory icon.
-- Automatic proximity capture, a short escape window, and synchronized closing animations.
-- Captured players have movement disabled until rescued or released; mobs are held in place
-  with Slowness VII and Blindness and visibly struggle, without the tick-by-tick teleport
-  corrections that used to make them stutter.
-- Nearby teammates can open an occupied device. Captured players cannot rescue themselves; the interaction prompt and feedback make available actions clearer.
-- Armor pieces reinforce an unoccupied device; interacting with an occupied device rescues first.
-- Redstone activation, persisted device state, breakable durability, and a single item drop on break.
-- Active-device limits, local entity queries, and bounded timers to keep work predictable.
+- Five craftable devices, each **2.2–2.7 blocks tall** with its own silhouette, palette, capture
+  range, damage, cycle speed, and durability. Hand-painted RGBA art for every entity atlas, block
+  face, and inventory icon.
+- **Fifteen animations per device**, including a hot `torturing_high` loop, a surge `burst`, a
+  struggle `strain`, and four durability `wear` stages that show cracks and rust as the frame takes
+  damage.
+- **Soul-charge escalation:** every strike a captive survives winds the device up — shorter cycles,
+  heavier hits — until the meter vents for a soul and one extra surge strike.
+- **Containment you can trust:** a captive that is shoved, knocked or washed out of its device is
+  pulled back and **takes no damage until it is inside again**; a captive that cannot be reseated is
+  released instead of being left stuck.
+- **Field repair:** hold iron, planks, bone, or obsidian (per device) to repair a damaged frame.
+  Armor pieces reinforce an unoccupied device; interacting with an occupied device rescues first.
+- **Soul shards and warding:** vented souls drop as soul shards when a frame breaks. Sneak + use any
+  device while holding one to buy five minutes of immunity from capture.
+- **Polish:** vanilla sound cues for every action, an action-bar status HUD for captives, wear
+  textures, impact particles positioned between the frame and its prisoner.
+- Redstone activation, persisted state, breakable durability, exactly one item drop on break, and a
+  deterministic test suite; active-device limits, local entity queries, and bounded timers keep work
+  predictable.
 
 ## Install
 
@@ -34,12 +44,29 @@ Place a device item on a solid surface. It becomes an animated device entity; th
 
 ### Rescue and reinforce
 
-- **Rescue:** Interact with an occupied device. A teammate opens it and releases the captive.
+- **Rescue:** Interact with an occupied device. A teammate opens it and releases the captive, who is teleported clear and gets their movement back. A captive cannot free themselves.
 - **Reinforce:** While the device is unoccupied, interact while holding a vanilla armor piece or elytra. The item is consumed; each piece raises durability and damage output while shortening the torture interval. Slots are limited per device.
-- **Break:** Attack the device. It has its own durability counter; breaking it releases the captive and drops exactly one device item.
+- **Repair:** Interact while holding the device's repair material — iron (ingot, bars, chain, or block) for the Iron Maiden and Gravebinder Cage, planks or sticks for the Cursed Stocks and Regret Rack, bone for the bone frames, and obsidian for the Black Reliquary. Each item restores a fixed fraction of maximum durability; a full device refuses the item instead of eating it.
+- **Ward:** Sneak + use any device while holding a soul shard to consume it for 5 minutes of immunity. Devices will not even start a capture on a warded player.
+- **Break:** Attack the device. It has its own durability counter; breaking it releases the captive, drops exactly one device item, and drops one soul shard per two harvested souls.
 - **Redstone:** Power an adjacent block to request an activation after the device's configured delay. Proximity capture remains enabled without redstone.
 
 Torture cycles heal the captive first, then apply damage capped to leave at least one health point. This keeps a normal cycle from instantly killing a full-health captive. Other hazards and player actions can still be dangerous; death releases the device.
+
+### Soul charge
+
+While a captive is contained, every strike it survives adds one charge step (a captured player sees
+the meter in the action bar):
+
+| Charge | Effect | Animation |
+| --- | --- | --- |
+| 0 | configured damage and cycle | `torture` |
+| 1 | +30 % damage, 10 % faster cycles | `torture` |
+| 2 | +60 % damage, 20 % faster cycles | `torture` |
+| 3 | +90 % damage, 30 % faster cycles | `torturing_high` |
+| 4 | vents: one soul harvested and a surge strike at 1.5× the charged damage | `burst` |
+
+Charge decays while the device is empty, so a fresh victim always starts at step 0.
 
 ## Devices and default balance
 
@@ -53,7 +80,8 @@ Damage values are Minecraft health points (two points per heart). Armor bonuses 
 | The Regret Rack | 1.4 | 5 s | 8–16 | 4% | 300 | 4 |
 | The Black Reliquary | 2.0 | 2 s | 12–20 | 10% | 250 | 4 |
 
-Critical damage and healing are device-specific; exact values are in `behavior_pack/scripts/config.js`.
+Critical damage and healing are device-specific, and the cycle column is the base interval before
+armor and soul-charge speed-ups; exact values are in `behavior_pack/scripts/config.js`.
 
 ## Crafting
 
@@ -104,7 +132,8 @@ O = Obsidian   N = Netherite Ingot   E = End Crystal   R = Redstone Block
 Admin commands run through `/scriptevent`, so they only need the stable API — but `/scriptevent` requires **cheats enabled** in the world. Commands are restricted to players tagged `cc:admin`; an operator can grant the tag with `/tag <player> add cc:admin`.
 
 - `/scriptevent cc:give` — Add all five devices to your inventory.
-- `/scriptevent cc:devices` — List registered devices and their state/durability.
+- `/scriptevent cc:souls` — Add a stack of soul shards (for testing the ward).
+- `/scriptevent cc:devices` — List registered devices and their state/durability/armor/souls.
 - `/scriptevent cc:debug on` / `/scriptevent cc:debug off` — Toggle server and chat debug logging.
 
 ## Build and tests
@@ -113,7 +142,7 @@ Requirements: Python 3, Node.js 22+, and Info-ZIP (`zip`). The packs themselves 
 
 ```bash
 npm install        # Dev-only tooling for the type-check gate
-npm test           # Unit, manager, admin-command, and device-lifecycle tests
+npm test           # 38 tests: unit, manager, admin-command, lifecycle, mechanics, integration
 npm run typecheck  # Type-check behavior-pack scripts against the stable 1.17.0 API surface
 ./build.sh         # Validate pack references and package the .mcaddon
 ```
@@ -127,12 +156,16 @@ The automated suite checks JavaScript syntax, type conformance against the stabl
   dev-only pixel-art pipeline in `tools/texturegen/` (`python3 tools/texturegen/build_assets.py`;
   QA renders with `tools/texturegen/preview.py`). The pipeline is never packaged into the `.mcaddon`.
 - Entity dynamic properties persist server-side state; client-sync entity properties mirror state,
-  durability, and reinforcement count, and drive the client animation controllers through
-  `cc:anim_*` tags.
+  durability, reinforcement count, soul charge (`cc:charge`), and souls (`cc:souls`). The animation
+  controllers read `cc:anim_*` state tags, `cc:anim_wear_*` durability tags, and the `cc:charge`
+  property, so the client picks the right loop with no extra server round trip.
+- Captive anchoring lives in `utils/containment.js`, the ward in `utils/immunity.js`, and sound/HUD
+  feedback in `utils/feedback.js`; `device-base.js` owns the lifecycle and gates every damaging
+  action behind a containment check.
 - Devices are static fixtures: no gravity and no block collision, so they cannot sink through an
   unloaded floor or shove a captive out of its seat.
 - Device detection is local, idle checks are throttled, and the active-device ceiling is enforced.
-- Natural structure/world generation and structure loot are not implemented in v0.1.3.
+- Natural structure/world generation and structure loot are not implemented in v0.1.4.
 
 ## License
 

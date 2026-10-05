@@ -4,7 +4,9 @@ Dev-only tool: nothing in this file ships inside the .mcaddon.
 
 Usage::
 
-    python3 tools/texturegen/preview.py iron_maiden [frame_time ...]
+    python3 tools/texturegen/preview.py iron_maiden [state[:time] ...]
+    python3 tools/texturegen/preview.py iron_maiden all
+    python3 tools/texturegen/preview.py iron_maiden atlas
 """
 
 from __future__ import annotations
@@ -18,14 +20,19 @@ sys.path.insert(0, str(ROOT / "devices"))
 
 from anim import pose_at  # noqa: E402
 from png_io import Image  # noqa: E402
-from model import bake_atlas, pack_faces  # noqa: E402
+from model import apply_auto_bounds, bake_atlas, pack_faces  # noqa: E402
+from pipeline import REQUIRED_ANIMATIONS  # noqa: E402
 from render import render  # noqa: E402
 
 PREVIEW_DIR = ROOT / "previews"
 
-DEVICES = {
-    "iron_maiden": ("iron_maiden", "animations"), 
-}
+# Default frames: one readable moment per state, so a glance at the previews
+# folder covers the whole cycle.
+DEFAULT_FRAMES = (
+    "idle:0.6", "detect:0.6", "close:0.62", "closed:0.2",
+    "torture:0.6", "torture_high:0.5", "strain:0.12", "burst:0.12",
+    "open:0.62", "released:0.5", "broken:1.4", "wear_2:0.2",
+)
 
 
 def atlas_zoom(atlas: Image, factor: int) -> Image:
@@ -44,19 +51,23 @@ def load(slug: str):
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
-        print("usage: preview.py <device> [state[:time] ...]")
+        print("usage: preview.py <device> [state[:time] ...|all|atlas]")
         return 2
     slug = argv[1]
     art = load(slug)
-    atlas, uv_map = bake_atlas(art.model, seed=7)
+    apply_auto_bounds(art.model)
+    atlas, _ = bake_atlas(art.model, seed=7)
     rects, _ = pack_faces(art.model)
 
     jobs = argv[2:]
-    if not jobs:
-        jobs = ["idle:0", "detect:0.5", "close:0.6", "torture:1.0", "strain:0.12", "open:0.6", "broken:1.4"]
+    if not jobs or jobs == ["all"]:
+        jobs = list(DEFAULT_FRAMES)
+        if jobs == ["all"]:
+            jobs = [f"{name}:0" for name in REQUIRED_ANIMATIONS]
     if "atlas" in jobs:
+        PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
         atlas.save(PREVIEW_DIR / f"{slug}_atlas.png")
-        atlas_zoom(atlas, 5).save(PREVIEW_DIR / f"{slug}_atlas_x5.png")
+        atlas_zoom(atlas, 4).save(PREVIEW_DIR / f"{slug}_atlas_x4.png")
 
     for job in jobs:
         if job == "atlas":
@@ -66,7 +77,7 @@ def main(argv: list[str]) -> int:
         animation = next((a for a in art.animations if a.identifier.endswith(f".{name}")), None)
         pose = pose_at(animation, time) if animation else {}
         target = PREVIEW_DIR / f"{slug}_{name}_{time:g}.png"
-        image = render(art.model, atlas, rects, size=(240, 280), pose=pose, supersample=2)
+        image = render(art.model, atlas, rects, size=(260, 300), pose=pose, supersample=2)
         target.parent.mkdir(parents=True, exist_ok=True)
         image.save(target)
         print(f"wrote {target.relative_to(ROOT.parent.parent)} ({image.width}x{image.height})")
