@@ -107,6 +107,15 @@ over-restricted mobs into statues. That implementation was revised per above.
 - Updated README and CHANGELOG to reflect the corrected containment design.
 - Added DESIGN_LOG.md per user request.
 
+### Final release (2026-10-05)
+- PR #8 merged to main as commit f97b5e5.
+- Tag `v0.1.5` created and pushed; GitHub release published (not draft, not prerelease).
+- The `publish-release.yml` workflow ran on release publication and built + uploaded
+  Cursed-Contraptions.mcaddon (78,927 bytes) as the release asset, since direct binary
+  upload from this sandbox to `uploads.github.com` was TLS-blocked.
+- All 42 tests pass, typecheck clean, build.sh validates 0 errors.
+- DESIGN_LOG.md updated.
+
 ---
 
 ## Decisions & Lessons
