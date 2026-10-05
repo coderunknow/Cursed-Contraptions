@@ -85,6 +85,19 @@
         "breathes_air": true,
         "breathes_water": true
       },
+      "minecraft:custom_hit_test": {
+        "hitboxes": [
+          {
+            "width": 1.5,
+            "height": 2.5,
+            "pivot": [
+              0,
+              1.25,
+              0
+            ]
+          }
+        ]
+      },
       "minecraft:interact": {
         "interactions": [
           {
@@ -103,7 +116,7 @@
             },
             "use_item": false,
             "interact_text": "action.cc.use_device",
-            "cooldown": 0.3,
+            "cooldown": 0.25,
             "swing": false
           },
           {
@@ -118,7 +131,7 @@
                   {
                     "test": "has_tag",
                     "subject": "self",
-                    "value": "cc:anim_torturing"
+                    "value": "cc:anim_capturing"
                   }
                 ]
               },
@@ -127,7 +140,7 @@
             },
             "use_item": false,
             "interact_text": "action.cc.rescue_captive",
-            "cooldown": 0.3,
+            "cooldown": 0.25,
             "swing": false
           },
           {
@@ -151,70 +164,41 @@
             },
             "use_item": false,
             "interact_text": "action.cc.rescue_captive",
-            "cooldown": 0.3,
+            "cooldown": 0.25,
+            "swing": false
+          },
+          {
+            "on_interact": {
+              "filters": {
+                "all_of": [
+                  {
+                    "test": "is_family",
+                    "subject": "other",
+                    "value": "player"
+                  },
+                  {
+                    "test": "has_tag",
+                    "subject": "self",
+                    "value": "cc:anim_torturing"
+                  }
+                ]
+              },
+              "event": "cc:on_interact",
+              "target": "self"
+            },
+            "use_item": false,
+            "interact_text": "action.cc.rescue_captive",
+            "cooldown": 0.25,
             "swing": false
           }
         ]
       }
     },
-    "component_groups": {
-      "cc:seated": {
-        "minecraft:custom_hit_test": {
-          "hitboxes": [
-            {
-              "width": 1.5,
-              "height": 2.5,
-              "pivot": [
-                0,
-                1.25,
-                0
-              ]
-            }
-          ]
-        }
-      },
-      "cc:empty": {
-        "minecraft:custom_hit_test": {
-          "hitboxes": [
-            {
-              "width": 1.5,
-              "height": 2.5,
-              "pivot": [
-                0,
-                1.25,
-                0
-              ]
-            }
-          ]
-        }
-      }
-    },
+    "component_groups": {},
     "events": {
       "cc:on_interact": {},
-      "cc:seat_victim": {
-        "remove": {
-          "component_groups": [
-            "cc:empty"
-          ]
-        },
-        "add": {
-          "component_groups": [
-            "cc:seated"
-          ]
-        }
-      },
-      "cc:clear_victim": {
-        "remove": {
-          "component_groups": [
-            "cc:seated"
-          ]
-        },
-        "add": {
-          "component_groups": [
-            "cc:empty"
-          ]
-        }
-      }
+      "cc:seat_victim": {},
+      "cc:clear_victim": {}
     }
   }
 }

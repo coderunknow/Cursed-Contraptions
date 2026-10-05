@@ -114,6 +114,24 @@ ITEM_ICONS = {
 def behavior_entity(art: DeviceArt) -> dict:
     slug = art.slug
     collision = COLLISION[slug]
+    pivot_y = collision["height"] / 2
+    occupied_interactions = [
+        {
+            "on_interact": {
+                "filters": {"all_of": [
+                    {"test": "is_family", "subject": "other", "value": "player"},
+                    {"test": "has_tag", "subject": "self", "value": f"cc:anim_{state}"},
+                ]},
+                "event": "cc:on_interact",
+                "target": "self",
+            },
+            "use_item": False,
+            "interact_text": INTERACT_KEYS["occupied"],
+            "cooldown": 0.25,
+            "swing": False,
+        }
+        for state in ("capturing", "closed", "torturing")
+    ]
 
     return {
         "format_version": "1.21.0",
@@ -168,103 +186,40 @@ def behavior_entity(art: DeviceArt) -> dict:
                     "breathes_air": True,
                     "breathes_water": True,
                 },
+                # A single always-active hitbox covering the whole frame.
+                # v0.1.3 carried two component groups that swapped between the
+                # same hitbox -- dead code that is removed here.
+                "minecraft:custom_hit_test": {
+                    "hitboxes": [
+                        {"width": collision["width"], "height": collision["height"], "pivot": [0, pivot_y, 0]}
+                    ]
+                },
                 "minecraft:interact": {
                     "interactions": [
                         {
                             "on_interact": {
-                                "filters": {
-                                    "all_of": [
-                                        {"test": "is_family", "subject": "other", "value": "player"}
-                                    ]
-                                },
+                                "filters": {"all_of": [
+                                    {"test": "is_family", "subject": "other", "value": "player"}
+                                ]},
                                 "event": "cc:on_interact",
                                 "target": "self",
                             },
                             "use_item": False,
                             "interact_text": INTERACT_KEYS["idle"],
-                            "cooldown": 0.3,
+                            "cooldown": 0.25,
                             "swing": False,
                         },
-                        {
-                            "on_interact": {
-                                "filters": {
-                                    "all_of": [
-                                        {"test": "is_family", "subject": "other", "value": "player"},
-                                        {"test": "has_tag", "subject": "self", "value": "cc:anim_torturing"},
-                                    ]
-                                },
-                                "event": "cc:on_interact",
-                                "target": "self",
-                            },
-                            "use_item": False,
-                            "interact_text": INTERACT_KEYS["occupied"],
-                            "cooldown": 0.3,
-                            "swing": False,
-                        },
-                        {
-                            "on_interact": {
-                                "filters": {
-                                    "all_of": [
-                                        {"test": "is_family", "subject": "other", "value": "player"},
-                                        {"test": "has_tag", "subject": "self", "value": "cc:anim_closed"},
-                                    ]
-                                },
-                                "event": "cc:on_interact",
-                                "target": "self",
-                            },
-                            "use_item": False,
-                            "interact_text": INTERACT_KEYS["occupied"],
-                            "cooldown": 0.3,
-                            "swing": False,
-                        },
+                        *occupied_interactions,
                     ]
                 },
             },
-            "component_groups": {
-                # The hitbox covers the whole contraption whether or not someone
-                # is inside it. An earlier build shrank the occupied hitbox to a
-                # sub-block box parked below the world, which meant a rescuer
-                # aiming at a full device could never hit it and the rescue
-                # interaction was unreachable. A frame that shelters its captive
-                # is also the right behaviour: hitting the device damages the
-                # frame, not the prisoner.
-                "cc:seated": {
-                    "minecraft:custom_hit_test": {
-                        "hitboxes": [
-                            {
-                                "width": collision["width"],
-                                "height": collision["height"],
-                                "pivot": [0, collision["height"] / 2, 0],
-                            }
-                        ]
-                    }
-                },
-                # Kept separate so the two states stay independently tunable.
-                "cc:empty": {
-                    "minecraft:custom_hit_test": {
-                        "hitboxes": [
-                            {
-                                "width": collision["width"],
-                                "height": collision["height"],
-                                "pivot": [0, collision["height"] / 2, 0],
-                            }
-                        ]
-                    }
-                },
-            },
+            "component_groups": {},
             "events": {
-                # The script API drives everything through these events; the
-                # interaction event carries no payload on the stable API, so the
-                # server event is the authoritative handler.
+                # No-ops kept for backward compatibility; the script API drives
+                # all state directly.
                 "cc:on_interact": {},
-                "cc:seat_victim": {
-                    "remove": {"component_groups": ["cc:empty"]},
-                    "add": {"component_groups": ["cc:seated"]},
-                },
-                "cc:clear_victim": {
-                    "remove": {"component_groups": ["cc:seated"]},
-                    "add": {"component_groups": ["cc:empty"]},
-                },
+                "cc:seat_victim": {},
+                "cc:clear_victim": {},
             },
         },
     }

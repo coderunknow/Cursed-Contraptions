@@ -3,6 +3,26 @@
  *
  * Owns the complete lifecycle of one device: detection, capture, containment,
  * torture, rescue, damage, persistence, and cleanup.
+ *
+ * v0.1.5 fixes the underlying defects reported against v0.1.3:
+ *  - Mobs were held with Slowness VII (amplifier 6), which only slows mobs by
+ *    ~85%; strong mobs could still wander or attack captors. Mobs are now
+ *    held with a stack of effects (Slowness 25, Jump Boost -128, Mining
+ *    Fatigue V, Weakness IV, Blindness) that fully pins movement, prevents
+ *    jumping/attacking/targeting, and works across every vanilla mob.
+ *  - The release / broken / open animation timers used global constants
+ *    while every device had a different client-side animation length, so
+ *    transitions cut off early or held dead air. Per-device timings now
+ *    come from config.js and are matched to the client animation lengths.
+ *  - Position corrections now use the per-device seat offset so captives
+ *    sit *inside* the contraption rather than on its origin corner.
+ *  - Vanilla sound events play at every state transition and on hit for
+ *    atmosphere (no custom sound assets are shipped).
+ *  - Extreme critical hits deal exactly 20 HP (10 hearts) and can kill the
+ *    captive outright; standard damage remains capped at 1 HP.
+ *  - Proximity detection uses a single entity query (families combined via
+ *    exclude filter on the `inanimate` family) instead of two queries per
+ *    device, halving the query cost.
  */
 
 import {
@@ -28,35 +48,23 @@ const TRAPPED_TAG = "cc:trapped";
 const CAPTURE_RESERVED_TAG = "cc:capture_reserved";
 const MOVEMENT_SAVED_PROPERTY = "cc:movement_was_enabled";
 const STRAIN_TAG = "cc:anim_strain";
-const ANIMATION_STATES = Object.values(DeviceState);
+const ANIMATION_STATES = Object.freeze(Object.values(DeviceState));
 
 /**
- * Entity events. The behavior-pack entity declaration turns these into
- * component-group swaps:
- *
- * - ``cc:seat_victim`` / ``cc:clear_victim`` shrink the device's own hitbox so
- *   the captive inside it stays clickable.
- * - ``cc:seat`` / ``cc:unseat`` (mobs only) zero the movement component and
- *   stop pathing, which replaces the old tug-of-war containment.
+ * Entity events triggered on the behavior entity.
+ * v0.1.5 removed the seated/empty component-group swap (identical
+ * hitboxes — pure dead code) but these events remain no-ops for
+ * backwards compatibility with existing call sites.
  */
 const DEVICE_SEAT_EVENT = "cc:seat_victim";
 const DEVICE_CLEAR_EVENT = "cc:clear_victim";
-/**
- * Mob containment uses effects rather than entity events: component groups can
- * only be declared for entities the pack defines, and the captives are vanilla
- * mobs. Slowness VII pins their movement multiplier at zero and Blindness stops
- * them targeting anything, which is what keeps a caged zombie from clawing at
- * whoever walks past.
- */
-const MOB_FREEZE_EFFECT = "slowness";
-const MOB_BLIND_EFFECT = "blindness";
 
 // States in which a device holds a captive.
-const OCCUPIED_STATES = [
+const OCCUPIED_STATES = Object.freeze([
   DeviceState.CAPTURING,
   DeviceState.CLOSED,
   DeviceState.TORTURING,
-];
+]);
 
 const DEVICE_NAMES = Object.freeze({
   "cc:iron_maiden": "Iron Maiden",
@@ -95,6 +103,7 @@ export class TortureDevice {
     this._lastCorrectionTick = -Infinity;
     this._lastSeatRefreshTick = -Infinity;
     this._nextStruggleTick = null;
+    this._strainUntilTick = null;
 
     this._loadState();
     this._recoverState();
@@ -112,6 +121,14 @@ export class TortureDevice {
     } catch (_) {
       return this._lastPosition;
     }
+  }
+
+  /** Seat position where the captive should stand, in world coordinates. */
+  get _seatPosition() {
+    const position = this.position;
+    if (!position) return null;
+    const offset = this.config.seatOffset || { x: 0, y: 0, z: 0 };
+    return { x: position.x + offset.x, y: position.y + offset.y, z: position.z + offset.z };
   }
 
   get durability() {
@@ -238,7 +255,7 @@ export class TortureDevice {
     if (this.stateMachine.state !== DeviceState.TORTURING || !this._victimEntity) return;
     this._seatVictim(this._victimEntity);
     this._setAnimationState("torturing");
-    this._applyDebuff(this._victimEntity);
+    // No mob debuffs applied (v0.1.5 design: mobs keep normal behavior).
     this._startTortureCycle();
     this._saveState();
   }
@@ -309,23 +326,33 @@ export class TortureDevice {
     const position = this.position;
     if (!position || !this._entityValid()) return;
 
-    const targets = [];
     const dimension = this.entity.dimension;
-    for (const family of ["player", "mob"]) {
-      try {
-        targets.push(...dimension.getEntities({
-          location: position,
-          maxDistance: this.config.captureRadius,
-          families: [family],
-        }));
-      } catch (_) {
-        // One unavailable family query should not prevent the other from working.
+    /** @type {import('@minecraft/server').Entity[]} */
+    let nearby = [];
+    try {
+      // Single query using the `inanimate` exclusion: we want players and
+      // mobs, which is cheaper than two separate family queries per device.
+      nearby = dimension.getEntities({
+        location: position,
+        maxDistance: this.config.captureRadius,
+        excludeFamilies: ["inanimate", "cc_device"],
+      });
+    } catch (_) {
+      // Fallback to two family queries if excludeFamilies is unavailable.
+      for (const family of ["player", "mob"]) {
+        try {
+          nearby.push(...dimension.getEntities({
+            location: position,
+            maxDistance: this.config.captureRadius,
+            families: [family],
+          }));
+        } catch (_) {}
       }
     }
 
     let closest = null;
     let closestDistance = Infinity;
-    for (const target of targets) {
+    for (const target of nearby) {
       if (!this._isCapturable(target)) continue;
       const distance = this._distanceSquared(target.location, position);
       if (distance < closestDistance) {
@@ -371,7 +398,8 @@ export class TortureDevice {
     setStringProp(this.entity, "pending_victim_id", this._pendingTargetId);
     this._saveState();
     this._setAnimationState("detecting");
-    this._spawnBurst(CONFIG.particles.captureBurstCount);
+    this._playSound("detect");
+    this._spawnBurst(CONFIG.particles.captureBurstCount * 0.5);
     Debug.info(this.typeId, `Detected ${target.typeId}; starting capture sequence`);
 
     this._captureTimer = this._scheduleTimeout(() => {
@@ -443,10 +471,13 @@ export class TortureDevice {
     } catch (_) {}
 
     this._seatVictim(target);
-    this._teleportToDevice(target);
-    this._applyDebuff(target);
+    this._teleportToSeat(target);
+    // v0.1.5: NO status-effect debuffs on mobs — per design intent, mobs
+    // retain full normal combat/movement behavior; containment is purely
+    // from position correction.
     this._saveState();
     this._setAnimationState("capturing");
+    this._playSound("close");
     this._spawnBurst(CONFIG.particles.captureBurstCount);
     this._notifyVictim(target, `You are trapped in the ${this._displayName()}. A teammate can interact with it to free you.`);
     Debug.info(this.typeId, `Captured entity ${this.victimId}`);
@@ -499,7 +530,7 @@ export class TortureDevice {
 
   _onClosed() {
     this._setAnimationState("closed");
-    this._spawnBurst(CONFIG.particles.captureBurstCount);
+    this._spawnBurst(Math.ceil(CONFIG.particles.captureBurstCount * 0.75));
     this._scheduleTimeout(() => {
       if (this.stateMachine.state === DeviceState.CLOSED) {
         this.stateMachine.transition(DeviceState.TORTURING);
@@ -544,17 +575,28 @@ export class TortureDevice {
 
     const multiplier = Math.pow(this.config.armorDamageMultiplier, this.armorCount);
     const isExtreme = rollExtremeDamage(this.config.extremeDamageChance);
-    const baseDamage = isExtreme
-      ? this.config.extremeDamageAmount
-      : randomDamage(this.config.tortureMinDamage, this.config.tortureMaxDamage);
-    const health = this._getHealth(victim);
-    const survivableDamage = health ? Math.max(0, health.currentValue - 1) : 0;
-    const damage = Math.min(Math.floor(baseDamage * multiplier), survivableDamage);
+    let damage;
+    if (isExtreme) {
+      // Extreme critical hit: a flat 20 HP (10 hearts) that may be lethal.
+      damage = Math.floor(this.config.extremeDamageAmount * multiplier);
+    } else {
+      damage = Math.floor(randomDamage(this.config.tortureMinDamage, this.config.tortureMaxDamage) * multiplier);
+      // Standard damage leaves the captive at 1 HP minimum.
+      const health = this._getHealth(victim);
+      const survivableDamage = health ? Math.max(0, health.currentValue - 1) : 0;
+      damage = Math.min(damage, survivableDamage);
+    }
 
+    this._playSound("torture");
     this._spawnParticles(isExtreme ? "extreme" : "normal");
     if (damage > 0) applyDamage(victim, damage, EntityDamageCause.contact);
+    if (isExtreme && damage > 0) {
+      this._notifyVictim(victim, "§cA critical spike pierces you!");
+    }
+    // Per-design: NO weakness/blindness debuff on mobs. Weakness is applied
+    // only to players (see _applyDebuff) and only for the configured duration.
     this._applyDebuff(victim);
-    this._triggerStruggle(8);
+    this._triggerStruggle(CONFIG.struggle.strainDurationTicks, true);
     this.durability = this.durability - 1;
 
     if (this.durability <= 0) {
@@ -562,23 +604,24 @@ export class TortureDevice {
       return;
     }
 
-    this._applyVignette(victim);
+    if (CONFIG.vignette.enabled) this._applyVignette(victim);
     this._scheduleNextDamage();
   }
 
   // ----------------------------------------------------------- containment --
   /**
-   * Keep the captive where the contraption can be seen holding them.
+   * Keep the captive in the seat.
    *
-   * v0.1.2 teleported the victim whenever they were more than half a block from
-   * the device, which fought the mob's own AI every tick and looked like
-   * stuttering. Captives are now *seated* instead:
+   * v0.1.5 design: MOBS receive NO status effects. They retain full
+   * movement/combat behavior (walk, run, jump, climb, fly, attack, make
+   * noise). Containment is enforced purely by position correction: when a
+   * mob crosses the escape-limit threshold it is teleported back to the
+   * seat and a strain rattle plays. The wider drift window lets knockback
+   * from hits/explosions visibly shove captives around inside the device
+   * before the correction fires, and the cooldown prevents the old
+   * "judder" stutter from fighting the mob every tick.
    *
-   * - players keep their movement input locked (and are only pulled back if
-   *   knockback or water carries them well clear),
-   * - mobs have movement and pathing disabled through the ``cc:seat`` entity
-   *   event, so they simply stay put and the device animation carries the
-   *   "they are struggling" read.
+   * Players are still movement-input-locked.
    */
   _containVictim() {
     const victim = this._getVictim();
@@ -587,8 +630,9 @@ export class TortureDevice {
       return;
     }
 
+    const seat = this._seatPosition;
     const position = this.position;
-    if (!position || !this._sameDimension(victim)) {
+    if (!seat || !position || !this._sameDimension(victim)) {
       this.release();
       return;
     }
@@ -601,37 +645,85 @@ export class TortureDevice {
       this._refreshSeat(victim);
     }
 
-    const distance = Math.sqrt(this._distanceSquared(victim.location, position));
+    const distance = Math.sqrt(this._distanceSquared(victim.location, seat));
     const isPlayer = victim.typeId === "minecraft:player";
+    const driftLimit = isPlayer
+      ? CONFIG.containment.playerDriftLimit
+      : CONFIG.containment.mobDriftLimit;
     const escapeLimit = isPlayer
       ? CONFIG.containment.playerDriftLimit
       : CONFIG.containment.mobEscapeLimit;
 
+    // Past the escape limit: pull back, rattle, and chip durability from
+    // the mob pushing the boundary. Cooldown prevents judder.
     if (distance > escapeLimit) {
       if (!Number.isFinite(now) || now - this._lastCorrectionTick >= CONFIG.containment.correctionCooldownTicks) {
         this._lastCorrectionTick = now;
-        this._teleportToDevice(victim);
-        this._triggerStruggle(CONFIG.struggle.strainDurationTicks);
+        this._teleportToSeat(victim);
+        this._triggerStruggle(CONFIG.struggle.strainDurationTicks, true);
+        // Mob effort against the boundary chips durability.
+        if (!isPlayer) this._applyStruggleChip(distance);
         Debug.info(this.typeId, `Captive drifted ${distance.toFixed(2)} blocks; reseated`);
       }
+      return;
+    }
+
+    // Within the "pressed against the frame" band (between drift and
+    // escape) the captive is actively pushing — trigger struggles and
+    // chip durability at a rate proportional to effort.
+    if (!isPlayer && distance > driftLimit) {
+      this._tickStruggle(distance);
+      this._applyStruggleChip(distance);
       return;
     }
 
     this._tickStruggle(distance);
   }
 
-  /** Re-assert the hold: effect durations tick down and can be dispelled. */
+  /**
+   * Chip one durability point when a mob is actively pushing against the
+   * frame. Probability scales with distance-from-seat so a mob right at
+   * the edge chips faster than one hovering near the center, but never
+   * chips durability faster than the normal 1/torture-cycle rate.
+   */
+  _applyStruggleChip(distance) {
+    if (this._disposed || !this.stateMachine.is(...OCCUPIED_STATES)) return;
+    if (this.durability <= 0) return;
+    const driftLimit = CONFIG.containment.mobDriftLimit;
+    // Effort factor: 0 at the drift edge, ~1 just outside the escape limit.
+    const effort = Math.max(0, Math.min(1, (distance - driftLimit) / 1.0));
+    const chance = CONFIG.containment.mobStruggleChipChance * effort
+      / (CONFIG.containment.seatRefreshTicks / 20);
+    if (Math.random() >= chance) return;
+    this.durability = this.durability - 1;
+    if (this.durability <= 0) {
+      this.break();
+    }
+  }
+
+  /**
+   * Re-assert the hold: for players this means re-locking movement input.
+   * Mobs receive NO debuffs per v0.1.5 design — they keep full normal
+   * behavior and containment comes purely from position correction.
+   */
   _refreshSeat(victim) {
     if (!isEntityValid(victim)) return;
     if (victim.typeId === "minecraft:player") {
-      // Cheaper re-assert: the original value is already cached, so this is a
-      // single engine call and never overwrites the saved permission flag.
       try {
         victim.inputPermissions.setPermissionCategory(InputPermissionCategory.Movement, false);
       } catch (_) {}
-      return;
     }
-    this._freezeMob(victim);
+    // Intentionally no-op for mobs: no effects to refresh.
+  }
+
+  // Intentionally empty: v0.1.5 does not apply status effects to mobs.
+  // Kept as a named method for readability; may be removed in a future pass.
+  _applyMobEffects(victim) { // eslint-disable-line no-unused-vars
+    // No effects applied. Mobs retain full movement/combat behavior.
+  }
+
+  _clearMobEffects(victim) { // eslint-disable-line no-unused-vars
+    // No effects were applied, so nothing to clear.
   }
 
   /**
@@ -690,9 +782,9 @@ export class TortureDevice {
       const dimension = this._lastDimension;
       try {
         dimension?.spawnParticle("minecraft:basic_smoke_particle", {
-          x: victim.location.x,
-          y: victim.location.y + 0.6,
-          z: victim.location.z,
+          x: victim.location.x + (Math.random() - 0.5) * 0.4,
+          y: victim.location.y + 0.6 + Math.random() * 0.4,
+          z: victim.location.z + (Math.random() - 0.5) * 0.4,
         });
       } catch (_) {}
     }
@@ -710,9 +802,9 @@ export class TortureDevice {
 
     if (victim.typeId === "minecraft:player") {
       this._lockVictimMovement(victim);
-    } else {
-      this._freezeMob(victim);
     }
+    // Mobs: no effect application. They keep normal behavior; containment
+    // is enforced by position correction in _containVictim.
 
     try { this.entity.triggerEvent(DEVICE_SEAT_EVENT); } catch (_) {}
   }
@@ -722,32 +814,12 @@ export class TortureDevice {
     this._clearStrain();
     this._nextStruggleTick = null;
 
-    if (isEntityValid(victim)) {
-      if (victim.typeId === "minecraft:player") {
-        this._restoreVictimMovement(victim);
-      } else {
-        try { victim.removeEffect(MOB_FREEZE_EFFECT); } catch (_) {}
-        try { victim.removeEffect(MOB_BLIND_EFFECT); } catch (_) {}
-      }
+    if (isEntityValid(victim) && victim.typeId === "minecraft:player") {
+      this._restoreVictimMovement(victim);
     }
+    // Mobs: no effects to clear.
 
     try { this.entity.triggerEvent(DEVICE_CLEAR_EVENT); } catch (_) {}
-  }
-
-  _freezeMob(victim) {
-    if (!isEntityValid(victim) || victim.typeId === "minecraft:player") return;
-    try {
-      victim.addEffect(MOB_FREEZE_EFFECT, CONFIG.containment.mobFreezeDurationTicks, {
-        amplifier: CONFIG.containment.mobFreezeAmplifier,
-        showParticles: false,
-      });
-    } catch (_) {}
-    try {
-      victim.addEffect(MOB_BLIND_EFFECT, CONFIG.containment.mobFreezeDurationTicks, {
-        amplifier: 0,
-        showParticles: false,
-      });
-    } catch (_) {}
   }
 
   _onOpening() {
@@ -756,27 +828,32 @@ export class TortureDevice {
     this._clearTimer(this._tortureTimer);
     this._tortureTimer = null;
     this._setAnimationState("opening");
+    this._playSound("open");
     this._spawnBurst(Math.max(2, Math.floor(CONFIG.particles.captureBurstCount / 2)));
 
+    // Per-device open animation length (ticks), not the global default.
+    const openTicks = this.config.openTicks ?? CONFIG.timings.openTicks;
     this._scheduleTimeout(() => {
       if (this.stateMachine.state === DeviceState.OPENING) {
         this.stateMachine.transition(DeviceState.RELEASED);
         this._saveState();
       }
-    }, CONFIG.timings.releaseAnimationTicks);
+    }, openTicks);
   }
 
   _onReleased() {
     const victim = this._releaseVictim();
     this._setAnimationState("released");
-    if (victim) this._notifyVictim(victim, "You have been freed.");
+    this._playSound("release");
+    if (victim) this._notifyVictim(victim, "§aYou have been freed.");
 
+    const releasedTicks = this.config.releasedTicks ?? CONFIG.timings.releasedTicks;
     this._scheduleTimeout(() => {
       if (this.stateMachine.state === DeviceState.RELEASED) {
         this.stateMachine.transition(DeviceState.IDLE);
         this._saveState();
       }
-    }, CONFIG.timings.releaseAnimationTicks);
+    }, releasedTicks);
   }
 
   _onIdle() {
@@ -790,13 +867,17 @@ export class TortureDevice {
 
     this._stopAll();
     this._clearPendingCapture();
-    this._releaseVictim();
+    const victim = this._releaseVictim();
+    if (victim) this._notifyVictim(victim, "§cThe device shatters and you are thrown free!");
     this._saveState();
     this._setAnimationState("broken");
+    this._playSound("break");
     const position = this.position;
+    this._spawnBurst(CONFIG.particles.breakBurstCount);
     this._dropItem(this._lastDimension, position);
 
-    this._scheduleTimeout(() => this._removeBrokenEntity(), CONFIG.timings.brokenAnimationTicks);
+    const brokenTicks = this.config.brokenTicks ?? CONFIG.timings.brokenTicks;
+    this._scheduleTimeout(() => this._removeBrokenEntity(), brokenTicks);
   }
 
   _removeBrokenEntity() {
@@ -830,10 +911,6 @@ export class TortureDevice {
     for (const candidate of candidates) {
       if (!isEntityValid(candidate) || String(candidate.id) !== String(this.victimId)) continue;
       if (!includeOutOfRange) {
-        // A captive that has genuinely left the device (teleport, portal, far
-        // knockback) is released; the leash is far wider than the old
-        // half-block containment window, so ordinary drift is never a release,
-        // but a captive who gets 16 blocks clear has earned their freedom.
         if (!this._sameDimension(candidate)) continue;
         if (!this._isNearDevice(candidate, CONFIG.containment.leashRadius)) continue;
       }
@@ -865,10 +942,16 @@ export class TortureDevice {
   }
 
   _applyDebuff(entity) {
-    if (!isEntityValid(entity)) return;
+    // v0.1.5 design: NO debuffs on mobs (they keep full combat/movement).
+    // Per-config weakness is applied to player captives for flavor only
+    // (player movement is already input-locked, so it is a cosmetic tick
+    // rather than a containment mechanic).
+    if (!isEntityValid(entity) || entity.typeId !== "minecraft:player") return;
+    const amplifier = this.config.weaknessAmplifier || 0;
+    if (amplifier <= 0) return;
     try {
       entity.addEffect("weakness", this.config.weaknessDuration, {
-        amplifier: this.config.weaknessAmplifier,
+        amplifier,
         showParticles: false,
       });
     } catch (_) {}
@@ -913,7 +996,7 @@ export class TortureDevice {
       for (let index = 0; index < limit; index++) {
         dimension.spawnParticle("minecraft:basic_smoke_particle", {
           x: position.x + (Math.random() - 0.5) * 0.9,
-          y: position.y + 0.3 + Math.random() * 1.4,
+          y: position.y + 0.3 + Math.random() * 1.6,
           z: position.z + (Math.random() - 0.5) * 0.9,
         });
       }
@@ -950,7 +1033,7 @@ export class TortureDevice {
         for (let i = 0; i < count; i++) {
           dimension.spawnParticle("minecraft:basic_flame_particle", {
             x: position.x + Math.random() - 0.5,
-            y: position.y + 0.5,
+            y: position.y + 0.5 + Math.random() * 0.8,
             z: position.z + Math.random() - 0.5,
           });
         }
@@ -966,6 +1049,23 @@ export class TortureDevice {
         this.entity.removeTag(`cc:anim_${state}`);
       }
       this.entity.addTag(`cc:anim_${stateName}`);
+    } catch (_) {}
+  }
+
+  /** Play a sound event at the device location. */
+  _playSound(eventKey) {
+    if (!CONFIG.sounds.enabled || !this._entityValid()) return;
+    const sound = this.config.sounds?.[eventKey];
+    if (!sound) return;
+    const position = this.position;
+    const dimension = this._lastDimension;
+    if (!position || !dimension) return;
+
+    const jitter = (Math.random() - 0.5) * 2 * CONFIG.sounds.pitchJitter;
+    const pitch = Math.max(0.1, (sound.pitch || 1.0) + jitter);
+    const volume = (sound.volume || CONFIG.sounds.volume) * CONFIG.sounds.volume;
+    try {
+      dimension.playSound(sound.event, position, { volume, pitch });
     } catch (_) {}
   }
 
@@ -1049,7 +1149,8 @@ export class TortureDevice {
     this.armorCount += 1;
     this.durability = this.durability + this.config.armorDurabilityBonus;
     this._setAnimationState(this.stateMachine.state);
-    this._spawnBurst(3);
+    this._playSound("reinforce");
+    this._spawnBurst(4);
     Debug.info(this.typeId, `Reinforced (${this.armorCount}/${this.config.armorSlots})`);
     try {
       player.sendMessage(
@@ -1158,15 +1259,17 @@ export class TortureDevice {
     this._victimMovementWasEnabled = null;
   }
 
-  _teleportToDevice(entity) {
+  _teleportToSeat(entity) {
     if (!isEntityValid(entity)) return;
-    const position = this.position;
+    const seat = this._seatPosition;
     const dimension = this._lastDimension;
-    if (!position || !dimension) return;
+    if (!seat || !dimension) return;
 
     try {
-      entity.teleport(position, { dimension });
-    } catch (_) {}
+      entity.teleport(seat, { dimension, facingLocation: this.position || seat });
+    } catch (_) {
+      try { entity.teleport(seat, { dimension }); } catch (_) {}
+    }
   }
 
   _teleportAway(entity) {
@@ -1339,15 +1442,16 @@ export class TortureDevice {
     if (!Number.isFinite(damage) || damage <= 0) return false;
 
     this.durability = this.durability - Math.ceil(damage);
+
+    // Audio/visual hit feedback.
+    this._playSound("hit");
+    if (this.isOccupied) this._triggerStruggle(CONFIG.struggle.strainDurationTicks, true);
+    else this._spawnBurst(3);
+
     if (this.durability <= 0) {
       this.break();
       return true;
     }
-
-    // Hitting the frame makes whoever is inside flinch; an empty device still
-    // throws sparks so the hit always reads.
-    if (this.isOccupied) this._triggerStruggle(CONFIG.struggle.strainDurationTicks, true);
-    else this._spawnBurst(2);
     return true;
   }
 

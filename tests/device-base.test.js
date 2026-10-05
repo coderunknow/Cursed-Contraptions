@@ -19,6 +19,7 @@ class FakeDimension {
       if (options.type && entity.typeId !== options.type) return false;
       if (options.excludeTypes?.includes(entity.typeId)) return false;
       if (options.families && !options.families.every((family) => entity.families.has(family))) return false;
+      if (options.excludeFamilies && options.excludeFamilies.some((family) => entity.families.has(family))) return false;
       if (options.tags && !options.tags.every((tag) => entity.hasTag(tag))) return false;
       if (options.location && Number.isFinite(options.maxDistance)) {
         const dx = entity.location.x - options.location.x;
@@ -33,6 +34,7 @@ class FakeDimension {
   getBlock() { return { isAir: true, isLiquid: false }; }
   spawnItem(item, location) { this.droppedItems.push({ item, location }); }
   spawnParticle() {}
+  playSound() {}
 
   add(entity) {
     this.entities.push(entity);
@@ -127,6 +129,8 @@ class FakeEntity {
     return true;
   }
   sendMessage(message) { this.messages.push(message); }
+  triggerEvent() {}
+  playSound() {}
   kill() { this.valid = false; }
   remove() { this.valid = false; }
 }

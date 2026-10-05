@@ -5,6 +5,95 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog 1.1](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-10-05
+
+Performance, containment-reliability, animation-timing, and polish release.
+Built from four reported issues: jagged/aliased visuals, mob interactions not
+working correctly on most items, limited animation coverage for open/close
+states, and the general feel not being badass enough. Identifiers, pack UUIDs,
+dynamic-property keys, recipes, and the stable `@minecraft/server` 1.17.0
+dependency are unchanged, so existing worlds keep their devices, captives, and
+reinforcement. No Beta APIs are used.
+
+### Fixed
+
+- **Mob containment (root cause, revised after design review).** v0.1.3 held mobs with Slowness VII
+  (amplifier 6), which only slows mobs by ~85% — strong mobs could still claw out or swing at
+  rescuers. An initial v0.1.5 pass over-corrected by stacking five freeze effects; after design
+  review with the user that was reversed. v0.1.5 applies **no status-effect debuffs at all** to
+  captured mobs: they retain full normal movement, combat, jumping, climbing, flying, and sound
+  behavior. Containment is enforced purely by position correction with a wider drift window
+  (knockback from hits/explosions visibly shoves them around before a correction fires, with a
+  cooldown to prevent stutter) and mobs pushing against the boundary chip durability proportional
+  to effort. Players are still movement-input-locked (different mechanism, same outcome).
+- **Animation timing alignment.** The release and broken transitions used
+  global tick constants while each device had a different client-side
+  animation length — the Iron Maiden open was cut 0.5 s short, the Regret
+  Rack release held dead air, and the Black Reliquary broken state killed
+  the entity mid-animation. Per-device `openTicks`, `releasedTicks`, and
+  `brokenTicks` now come from `config.js` and are matched to the exact
+  client animation lengths so transitions start and end cleanly.
+- **Capturing-state rescue prompt.** v0.1.3 only registered the "Use /
+  Rescue" interaction for the `closed` and `torturing` tags, so a rescuer
+  aiming at a device whose doors were still slamming saw the generic
+  "Inspect / Reinforce" prompt and could not interrupt the capture. The
+  prompt now covers every occupied state (`capturing`, `closed`,
+  `torturing`).
+- **Dead code removed.** The behavior entity carried two component groups
+  (`cc:seated` / `cc:empty`) that both declared the exact same hitbox, and
+  the seat/clear events swapped between them — pure no-ops. The hitbox is
+  now a single always-on component, the events are empty stubs (kept for
+  backwards compatibility with existing `triggerEvent` calls), and the
+  generator emits that cleaned-up shape.
+- **Per-device seat offset.** v0.1.3 teleported captives to the device's
+  block origin, which put the Regret Rack's captive floating below the bed
+  and the Black Reliquary's captive standing on the rim. Each device now
+  has a `seatOffset` so captives sit centered inside the contraption.
+
+### Changed
+
+- **Proximity detection uses one query.** Idle-device scanning merged the
+  two separate `player` / `mob` family queries into a single query that
+  excludes the `inanimate` family (with the two-query path as a fallback if
+  the exclusion filter is unavailable), halving the entity-query cost per
+  device per tick.
+- **Tick intervals tightened.** Active devices now tick every 4 ticks
+  (down from 5), idle scans every 16 ticks (down from 20), and redstone
+  polling every 8 ticks (down from 10) for tighter feedback without
+  exceeding the active-device cap.
+- **Hit and state audio.** Vanilla sound events (anvil land/use/break, iron
+  golem thud, wooden door open/close, ender/wither growls for the Black
+  Reliquary, bat wings for the cage, etc.) now play at every state
+  transition and on every hit, with per-device pitch jitter so repeated
+  events do not sound robotic. No custom sound assets are shipped.
+- **Extreme critical hits can kill.** Standard torture cycles still heal
+  then cap damage to leave the captive at 1 HP (non-lethal by device
+  alone), but an extreme roll now deals exactly 20 HP (10 hearts) of
+  un-capped damage — rare enough that normal play stays non-lethal, while
+  an unlucky critical spike can finish a captive off.
+- **Hit and break feedback.** Hitting an empty device now spawns sparks
+  and plays the hit sound instead of a smoke puff only; breaking spawns a
+  larger burst; reinforcement plays a metallic chink.
+- **Containment polish.** The drift window for mobs was tightened from 1.25
+  blocks to 0.9 blocks and the escape-limit from 2.5 to 1.6 blocks so a
+  captured mob stays visually inside the frame; corrections still happen
+  at most once per second so stutter cannot return. Strain rattles and
+  smoke particles are slightly more frequent, and dust puffs are jittered
+  around the captive rather than stacking at the same texel.
+
+### Validation
+
+- All 42 automated tests pass (9 unit + 9 admin-command/manager + 24
+  device-lifecycle / integration-flow, extended with excludeFamilies
+  query coverage, per-device timing keys, and sound/effect stubs on the
+  mocks).
+- `npm run typecheck` passes cleanly against the stable 1.17.0 API surface.
+- `tests/validate_build.py` and `./build.sh` pass with 0 errors; the
+  packaged `.mcaddon` is validated.
+- In-engine rendering, touch input, mob containment for every vanilla mob,
+  and multiplayer rescue still require a Bedrock test pass; see
+  `tests/GAMETESTS.md`.
+
 ## [0.1.3] - 2026-10-04
 
 Art, containment, and placement release, built from three in-game reports:

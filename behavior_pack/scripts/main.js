@@ -319,6 +319,11 @@ function clearStaleCapture(entity) {
 
 subscribeSafely("redstone polling", () => {
   system.runInterval(() => {
+    const offsets = [
+      [1, 0, 0], [-1, 0, 0],
+      [0, 1, 0], [0, -1, 0],
+      [0, 0, 1], [0, 0, -1],
+    ];
     for (const device of deviceManager.devices.values()) {
       if (device._disposed || !device._entityValid()) continue;
       const position = device.position;
@@ -327,29 +332,18 @@ subscribeSafely("redstone polling", () => {
       let powered = false;
       try {
         const dimension = device.entity.dimension;
-        const center = {
-          x: Math.floor(position.x),
-          y: Math.floor(position.y),
-          z: Math.floor(position.z),
-        };
-        const offsets = [
-          { x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 },
-          { x: 0, y: 1, z: 0 }, { x: 0, y: -1, z: 0 },
-          { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 },
-        ];
-        for (const offset of offsets) {
+        const cx = Math.floor(position.x);
+        const cy = Math.floor(position.y);
+        const cz = Math.floor(position.z);
+        for (const [ox, oy, oz] of offsets) {
           try {
-            const block = dimension.getBlock({
-              x: center.x + offset.x,
-              y: center.y + offset.y,
-              z: center.z + offset.z,
-            });
+            const block = dimension.getBlock({ x: cx + ox, y: cy + oy, z: cz + oz });
             if ((block?.getRedstonePower?.() || 0) > 0) {
               powered = true;
               break;
             }
           } catch (_) {
-            // Skip this side if its neighboring chunk is not loaded.
+            // Neighboring chunk not loaded; skip this side.
           }
         }
       } catch (_) {
@@ -358,7 +352,6 @@ subscribeSafely("redstone polling", () => {
       try {
         device.onRedstonePower(powered);
       } catch (error) {
-        // One broken device must never kill the shared polling interval.
         Debug.error("Main", "Redstone poll failed for a device", error);
       }
     }

@@ -23,7 +23,7 @@ class FakeDimension {
   }
   getBlock(location) {
     const typeId = this.blocks.get(FakeDimension.key(location));
-    return typeId ? { typeId, isAir: typeId === "minecraft:air" } : undefined;
+    return typeId ? { typeId, isAir: typeId === "minecraft:air", getRedstonePower: () => 0 } : undefined;
   }
   setBlockType(location, typeId) {
     this.blocks.set(FakeDimension.key(location), typeId);
@@ -38,11 +38,13 @@ class FakeDimension {
   }
   spawnItem(item, location) { this.droppedItems.push({ item, location }); }
   spawnParticle() {}
+  playSound() {}
   getEntities(options = {}) {
     return this.entities.filter((entity) => {
       if (!entity.isValid() || entity.dimension !== this) return false;
       if (options.type && entity.typeId !== options.type) return false;
       if (options.families && !options.families.every((family) => entity.families.has(family))) return false;
+      if (options.excludeFamilies && options.excludeFamilies.some((family) => entity.families.has(family))) return false;
       if (options.tags && !options.tags.every((tag) => entity.hasTag(tag))) return false;
       if (options.location && Number.isFinite(options.maxDistance)) {
         const dx = entity.location.x - options.location.x;
@@ -118,6 +120,8 @@ class FakeEntity {
   }
   applyDamage(amount) { this._health = Math.max(0, this._health - amount); return true; }
   sendMessage(message) { this.messages.push(message); }
+  triggerEvent() {}
+  playSound() {}
   kill() { this.valid = false; }
   remove() { this.valid = false; }
 }
